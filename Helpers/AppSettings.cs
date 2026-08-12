@@ -86,7 +86,7 @@ public class AppSettings
     public string TextColor { get; set; } = "#FFFFFF";
     public string BackgroundColor { get; set; } = "#101018";
     public string WaveColor { get; set; } = "#3BD0FF";
-    public string FontFamily { get; set; } = "Novecento Wide";
+    public string FontFamily { get; set; } = "Montserrat";
 
     public static AppSettings Load()
     {

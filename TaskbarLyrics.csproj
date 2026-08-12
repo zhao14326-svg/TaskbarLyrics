@@ -23,7 +23,8 @@
     <EmbeddedResource Include="Assets\Web\overlay.html" LogicalName="TaskbarLyrics.Assets.Web.overlay.html" />
     <EmbeddedResource Include="Assets\Web\overlay.css"  LogicalName="TaskbarLyrics.Assets.Web.overlay.css" />
     <EmbeddedResource Include="Assets\Web\overlay.js"   LogicalName="TaskbarLyrics.Assets.Web.overlay.js" />
-    <EmbeddedResource Include="Assets\Fonts\Novecento-Wide-Medium-2.otf" LogicalName="TaskbarLyrics.Assets.Fonts.Novecento-Wide-Medium-2.otf" />
+    <EmbeddedResource Include="Assets\Fonts\Montserrat.ttf" LogicalName="TaskbarLyrics.Assets.Fonts.Montserrat.ttf" />
+    <EmbeddedResource Include="Assets\Fonts\OFL.txt" LogicalName="TaskbarLyrics.Assets.Fonts.OFL.txt" />
   </ItemGroup>
 
   <ItemGroup>

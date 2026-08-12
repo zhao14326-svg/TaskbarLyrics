@@ -1,7 +1,7 @@
 @font-face {
-    font-family: 'Novecento Wide';
-    src: url('https://appassets.local/Novecento-Wide-Medium-2.otf') format('opentype');
-    font-weight: 500;
+    font-family: 'Montserrat';
+    src: url('https://appassets.local/Montserrat.ttf') format('truetype');
+    font-weight: 100 900;
     font-style: normal;
 }
 
@@ -19,7 +19,7 @@
     --wave-color: #3BD0FF;
     --bar-h: 40px;
     --font-size: 14px;
-    --font-family: 'Novecento Wide', 'Segoe UI', system-ui, sans-serif;
+    --font-family: 'Montserrat', 'Segoe UI', system-ui, sans-serif;
     --cover-size: 40px;
     --cover-radius: 8px;
     --panel-radius: 12px;
