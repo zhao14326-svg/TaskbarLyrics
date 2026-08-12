@@ -1,0 +1,253 @@
+@font-face {
+    font-family: 'Novecento Wide';
+    src: url('https://appassets.local/Novecento-Wide-Medium-2.otf') format('opentype');
+    font-weight: 500;
+    font-style: normal;
+}
+
+/* ---- CSS Variables (defaults, overridden by JS) ---- */
+:root {
+    --text-color: #FFFFFF;
+    --dim-color: rgba(255,255,255,0.5);
+    --bg-color: #101018;
+    --bg-rgb: 16,16,24;
+    --accent-color: #3BD0FF;
+    --accent-rgb: 59,208,255;
+    --surface-rgb: 16,16,24;   /* 封面取色后更新为 surface-bg */
+    --text-primary: #F5F5F7;   /* 歌词文字(封面取色后按对比度自动切换深浅) */
+    --text-secondary: #B9B9C2; /* 歌名/次要文字 */
+    --wave-color: #3BD0FF;
+    --bar-h: 40px;
+    --font-size: 14px;
+    --font-family: 'Novecento Wide', 'Segoe UI', system-ui, sans-serif;
+    --cover-size: 40px;
+    --cover-radius: 8px;
+    --panel-radius: 12px;
+    --bg-opacity: 1.0;
+    --text-shadow: 0 1px 2px rgba(0,0,0,0.45);
+    --border-color: transparent;
+    --tb-cover-track-spacing: 4px;
+    --tb-cover-content-spacing: 8px;
+    --tb-cover-x-offset: 0px;
+    --tb-cover-y-offset: 0px;
+    --tb-content-x-offset: 0px;
+    --tb-content-y-offset: 0px;
+    --spectrum-opacity: 0.85;
+    --spectrum-height-ratio: 0.8;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+    height: 100%; overflow: hidden;
+    background: transparent; /* 让窗口亚克力(毛玻璃)透出 */
+    font-family: var(--font-family);
+    color: var(--text-color);
+    pointer-events: none; user-select: none; -webkit-user-select: none;
+}
+body.bg-disabled #root {
+    background: transparent;
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+    border: none; box-shadow: none;
+}
+
+/* ---- Root Layout（唯一的毛玻璃层） ---- */
+#root {
+    display: flex;
+    height: 100%;
+    width: 100%;
+    align-items: center;
+    position: relative;
+    border-radius: var(--panel-radius);
+    overflow: hidden;
+    /* 单一毛玻璃：surface-bg 主题色半透明叠加（依赖分层窗口自带透明，不做每帧桌面模糊，
+       避免拖垮 DWM/GPU 导致微信、Edge 等输入卡顿） */
+    background:
+        linear-gradient(180deg,
+            rgba(var(--surface-rgb), 0.55),
+            rgba(var(--surface-rgb), 0.45) 50%,
+            rgba(var(--surface-rgb), 0.60));
+    border: 1px solid rgba(var(--accent-rgb), 0.16); /* 极低透明度 accent 细描边 */
+    box-shadow: 0 2px 12px rgba(0,0,0,0.18); /* 微弱内发光氛围 */
+    opacity: var(--bg-opacity);
+    /* 切换封面/歌曲时色彩渐变过渡，避免闪屏 */
+    transition: background 0.45s ease, border-color 0.45s ease, box-shadow 0.45s ease, opacity 0.3s;
+}
+#root.layout-horizontal { flex-direction: row; padding: 0 10px; gap: 10px; }
+#root.layout-topbottom { flex-direction: column; padding: 6px 10px; gap: 0; align-items: flex-start; }
+#root.border-on { border: 1px solid var(--border-color); }
+
+/* ---- Cover Area ---- */
+#coverArea {
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+    background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.18), rgba(var(--surface-rgb), 0.25)); /* 占位底色随主题 */
+    position: relative;
+    transition: width 0.3s, height 0.3s, border-radius 0.3s, margin 0.3s, background 0.45s ease;
+}
+#coverArea::after {
+    content: ''; position: absolute; inset: 0;
+    background: rgba(0, 0, 0, 0.04); /* 4% 暗色蒙版,避免封面色彩过于刺眼 */
+    pointer-events: none;
+    z-index: 1;
+}
+#coverArea.hidden { display: none; }
+#coverArea.cover-square { border-radius: 0; }
+#coverArea.cover-rounded { border-radius: var(--cover-radius); }
+#coverArea.cover-circle { border-radius: 50%; }
+
+.layout-horizontal #coverArea {
+    width: var(--cover-size); height: var(--cover-size);
+}
+
+#coverImg {
+    width: 100%; height: 100%; object-fit: cover;
+    position: absolute; inset: 0;
+    transition: opacity 0.4s ease;
+    opacity: 0;
+}
+#coverImg.loaded { opacity: 1; }
+#coverPlaceholder {
+    font-size: calc(var(--cover-size) * 0.45);
+    opacity: 0.3;
+    transition: opacity 0.3s;
+}
+#coverImg.loaded ~ #coverPlaceholder { opacity: 0; }
+
+/* ---- Content Area ---- */
+#contentArea {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; justify-content: center;
+    position: relative; overflow: hidden;
+}
+.layout-topbottom #contentArea {
+    margin-left: var(--tb-content-x-offset);
+    margin-top: var(--tb-content-y-offset);
+    width: calc(100% - var(--tb-content-x-offset));
+}
+
+/* ---- Track Info ---- */
+#trackInfoLine {
+    font-size: calc(var(--font-size) - 2px);
+    font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: var(--text-secondary); /* 歌名用二级文字色 */
+    display: none;
+    margin-bottom: 2px;
+    transition: color 0.45s ease;
+}
+#trackInfoLine.visible { display: block; }
+
+/* ---- Lyrics ---- */
+#lyricsArea {
+    position: relative; z-index: 2;
+    pointer-events: none;
+    overflow: hidden;
+    /* 干净利落：直接显示在面板毛玻璃上，不叠加独立玻璃层 */
+}
+.lyric-row {
+    position: relative;
+    white-space: nowrap;
+    line-height: 1.35;
+    font-size: var(--font-size);
+}
+.lyric-row.current-row { font-weight: 600; }
+.lyric-row.next-row {
+    font-size: calc(var(--font-size) - 3px);
+    opacity: 0.65;
+    margin-top: 1px;
+}
+.lyric-bg, .lyric-fg { white-space: nowrap; transition: color 0.45s ease; }
+.lyric-bg { color: rgba(255,255,255,0.35); }
+.lyric-fg { color: var(--text-primary); } /* 歌词用一级文字色(自动对比度) */
+
+/* 下一行预览用二级文字色 */
+.lyric-row.next-row .lyric-fg { color: var(--text-secondary); }
+
+/* 当前行(不再用 accent 硬染色,保证可读) */
+#rowCurrent .lyric-fg {
+    color: var(--text-primary);
+}
+
+/* Text shadow */
+.text-shadow-on .lyric-fg,
+.text-shadow-on .lyric-bg,
+.text-shadow-on #trackInfoLine {
+    text-shadow: var(--text-shadow);
+}
+
+/* Marquee */
+#rowCurrent.marquee .lyric-bg,
+#rowCurrent.marquee .lyric-fg {
+    animation: marquee var(--marquee-dur, 8s) linear infinite alternate;
+}
+@keyframes marquee {
+    from { transform: translateX(0); }
+    to   { transform: translateX(var(--marquee-dx, -60px)); }
+}
+
+/* ---- Lyrics Transitions ---- */
+.lyric-row.anim-slideUp-out {
+    animation: slideUpOut 0.35s ease forwards;
+}
+.lyric-row.anim-slideUp-in {
+    animation: slideUpIn 0.35s ease forwards;
+}
+@keyframes slideUpOut {
+    to { transform: translateY(-120%); opacity: 0; }
+}
+@keyframes slideUpIn {
+    from { transform: translateY(120%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+.lyric-row.anim-fade-out {
+    animation: fadeOut 0.3s ease forwards;
+}
+.lyric-row.anim-fade-in {
+    animation: fadeIn 0.3s ease forwards;
+}
+@keyframes fadeOut { to { opacity: 0; } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.lyric-row.anim-compactSlide-out {
+    animation: compactSlideOut 0.25s ease forwards;
+}
+.lyric-row.anim-compactSlide-in {
+    animation: compactSlideIn 0.25s ease forwards;
+}
+@keyframes compactSlideOut {
+    to { transform: translateY(-60%); opacity: 0; }
+}
+@keyframes compactSlideIn {
+    from { transform: translateY(60%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+/* 纯文本歌词(无时间戳·按节奏估算)提示 */
+#unsyncedHint {
+    font-size: 10px;
+    line-height: 1;
+    color: var(--text-secondary);
+    opacity: 0.65;
+    text-align: center;
+    letter-spacing: 0.5px;
+    margin-bottom: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+/* ---- Spectrum ---- */
+#spectrum {
+    position: absolute; inset: 0; z-index: 1;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    opacity: var(--spectrum-opacity);
+    display: none;
+}
+#spectrum.active { display: block; }
+
+/* ---- Idle / Paused dim ---- */
+#root.dim { opacity: 0.3; }
+#root.paused { opacity: 0.55; }

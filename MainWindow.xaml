@@ -1,0 +1,190 @@
+<Window x:Class="TaskbarLyrics.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="任务栏歌词 - 设置" Width="520" Height="580"
+        WindowStartupLocation="CenterScreen" ResizeMode="CanMinimize">
+    <DockPanel>
+        <!-- 状态栏 -->
+        <StackPanel DockPanel.Dock="Bottom" Margin="16,0,16,12">
+            <TextBlock x:Name="TxtStatus"
+                       Text="正在读取媒体信息..." Foreground="DodgerBlue"
+                       TextWrapping="Wrap" FontSize="12" Margin="0,0,0,8"/>
+            <StackPanel Orientation="Horizontal">
+                <Button x:Name="BtnSave" Content="保存设置" Width="100" Height="32" Click="BtnSave_Click"/>
+                <Button x:Name="BtnHide" Content="隐藏悬浮窗" Width="100" Height="32" Margin="8,0,0,0" Click="BtnHide_Click"/>
+            </StackPanel>
+        </StackPanel>
+
+        <TabControl Margin="16,12,16,0">
+            <!-- ====== 显示 ====== -->
+            <TabItem Header="显示">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="12">
+                        <TextBlock Text="歌词字体大小" FontWeight="SemiBold"/>
+                        <Slider x:Name="SldFont" Minimum="10" Maximum="22" TickFrequency="1" Margin="0,4,0,10"/>
+
+                        <CheckBox x:Name="ChkTrackInfo" Content="无歌词时显示歌名-歌手信息" Margin="0,0,0,4"/>
+                        <CheckBox x:Name="ChkOnline" Content="启用在线歌词获取（lrclib.net）" Margin="0,0,0,4"/>
+                        <CheckBox x:Name="ChkTextShadow" Content="文字阴影" Margin="0,0,0,10"/>
+
+                        <TextBlock Text="歌词颜色（#RRGGBB）" FontWeight="SemiBold"/>
+                        <TextBox x:Name="TxtColor" Height="24" Margin="0,4,0,2"/>
+                        <TextBlock Text="波形/频谱颜色（#RRGGBB）" FontWeight="SemiBold" Margin="0,8,0,0"/>
+                        <TextBox x:Name="TxtWaveColor" Height="24" Margin="0,4,0,2"/>
+                        <TextBlock Text="背景颜色（#RRGGBB）" FontWeight="SemiBold" Margin="0,8,0,0"/>
+                        <TextBox x:Name="TxtBgColor" Height="24" Margin="0,4,0,10"/>
+
+                        <TextBlock Text="歌词切换动画" FontWeight="SemiBold"/>
+                        <ComboBox x:Name="CmbLyricTransition" Margin="0,4,0,10">
+                            <ComboBoxItem Content="上滑" Tag="0"/>
+                            <ComboBoxItem Content="淡入淡出" Tag="1"/>
+                            <ComboBoxItem Content="紧凑滑动" Tag="2"/>
+                            <ComboBoxItem Content="无动画" Tag="3"/>
+                        </ComboBox>
+
+                        <ComboBox x:Name="CmbPosition" Margin="0,0,0,4">
+                            <ComboBoxItem Content="任务栏右侧" Tag="0"/>
+                            <ComboBoxItem Content="任务栏中间" Tag="1"/>
+                            <ComboBoxItem Content="任务栏左侧（默认）" Tag="2"/>
+                        </ComboBox>
+
+                        <TextBlock Text="歌词同步偏移（毫秒，正数=歌词提前显示，自动校准未覆盖时手动微调）"
+                                   FontWeight="SemiBold" Margin="0,10,0,0"/>
+                        <Slider x:Name="SldLyricOffset" Minimum="-3000" Maximum="3000" TickFrequency="100" Margin="0,4,0,2"/>
+                        <TextBlock x:Name="TxtLyricOffset" FontSize="11" Foreground="Gray" Margin="0,0,0,6"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ====== 封面 ====== -->
+            <TabItem Header="封面">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="12">
+                        <CheckBox x:Name="ChkShowCover" Content="显示专辑封面（默认开启）" Margin="0,0,0,6"/>
+
+                        <TextBlock Text="封面样式" FontWeight="SemiBold"/>
+                        <ComboBox x:Name="CmbCoverStyle" Margin="0,4,0,6">
+                            <ComboBoxItem Content="方形" Tag="0"/>
+                            <ComboBoxItem Content="圆角方形" Tag="1"/>
+                            <ComboBoxItem Content="圆形" Tag="2"/>
+                        </ComboBox>
+
+                        <TextBlock Text="封面大小" FontWeight="SemiBold"/>
+                        <Slider x:Name="SldCoverSize" Minimum="24" Maximum="80" TickFrequency="2" Margin="0,4,0,2"/>
+                        <TextBlock x:Name="TxtCoverSize" FontSize="11" Foreground="Gray" Margin="0,0,0,6"/>
+
+                        <TextBlock Text="封面布局" FontWeight="SemiBold"/>
+                        <ComboBox x:Name="CmbCoverLayout" Margin="0,4,0,6">
+                            <ComboBoxItem Content="横向排列（封面在左，歌词在右）" Tag="0"/>
+                            <ComboBoxItem Content="上下两行（封面在上，歌词在下）" Tag="1"/>
+                        </ComboBox>
+
+                        <CheckBox x:Name="ChkCoverCrossFade" Content="封面交叉淡入" Margin="0,0,0,6"/>
+                        <CheckBox x:Name="ChkExtractColor" Content="从封面提取主题色（用于歌词和频谱）" Margin="0,0,0,6"/>
+
+                        <TextBlock Text="封面来源策略" FontWeight="SemiBold"/>
+                        <ComboBox x:Name="CmbCoverStrategy" Margin="0,4,0,10">
+                            <ComboBoxItem Content="在线优先" Tag="0"/>
+                            <ComboBoxItem Content="本地优先" Tag="1"/>
+                            <ComboBoxItem Content="仅在线" Tag="2"/>
+                            <ComboBoxItem Content="仅本地" Tag="3"/>
+                        </ComboBox>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ====== 频谱 ====== -->
+            <TabItem Header="频谱">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="12">
+                        <CheckBox x:Name="ChkShowSpectrum" Content="频谱总开关" Margin="0,0,0,6"/>
+                        <CheckBox x:Name="ChkSpecInstrumental" Content="纯音乐时显示频谱" Margin="0,0,0,4"/>
+                        <CheckBox x:Name="ChkSpecNoLyrics" Content="未检索到歌词时显示频谱" Margin="0,0,0,4"/>
+                        <CheckBox x:Name="ChkSpecWithLyrics" Content="有歌词时也显示频谱" Margin="0,0,0,10"/>
+
+                        <TextBlock Text="频谱样式" FontWeight="SemiBold"/>
+                        <ComboBox x:Name="CmbSpectrumStyle" Margin="0,4,0,10">
+                            <ComboBoxItem Content="中心扩散" Tag="0"/>
+                            <ComboBoxItem Content="底部柱状" Tag="1"/>
+                            <ComboBoxItem Content="镜像波形" Tag="2"/>
+                            <ComboBoxItem Content="细线" Tag="3"/>
+                            <ComboBoxItem Content="点阵" Tag="4"/>
+                            <ComboBoxItem Content="呼吸条" Tag="5"/>
+                        </ComboBox>
+
+                        <TextBlock Text="响应速度（越小越平滑，越大越灵敏）" FontWeight="SemiBold" Margin="0,8,0,0"/>
+                        <Slider x:Name="SldSpecResponse" Minimum="0.1" Maximum="0.95" TickFrequency="0.05" Margin="0,4,0,2"/>
+                        <TextBlock x:Name="TxtSpecResponse" FontSize="11" Foreground="Gray" Margin="0,0,0,8"/>
+
+                        <TextBlock Text="高度范围（相对容器高度）" FontWeight="SemiBold"/>
+                        <Slider x:Name="SldSpecHeight" Minimum="0.2" Maximum="1.5" TickFrequency="0.05" Margin="0,4,0,2"/>
+                        <TextBlock x:Name="TxtSpecHeight" FontSize="11" Foreground="Gray" Margin="0,0,0,8"/>
+
+                        <TextBlock Text="不透明度" FontWeight="SemiBold"/>
+                        <Slider x:Name="SldSpecOpacity" Minimum="0.1" Maximum="1.0" TickFrequency="0.05" Margin="0,4,0,2"/>
+                        <TextBlock x:Name="TxtSpecOpacity" FontSize="11" Foreground="Gray" Margin="0,0,0,8"/>
+
+                        <TextBlock Text="刷新间隔（毫秒）" FontWeight="SemiBold"/>
+                        <Slider x:Name="SldSpecRefresh" Minimum="16" Maximum="100" TickFrequency="4" Margin="0,4,0,2"/>
+                        <TextBlock x:Name="TxtSpecRefresh" FontSize="11" Foreground="Gray" Margin="0,0,0,10"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ====== 窗口 ====== -->
+            <TabItem Header="窗口">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="12">
+                        <CheckBox x:Name="ChkAutoWidth" Content="自动窗口宽度" Margin="0,0,0,4"/>
+                        <CheckBox x:Name="ChkAutoHeight" Content="自动窗口高度（优先向上展开）" Margin="0,0,0,4"/>
+                        <CheckBox x:Name="ChkAlwaysOnTop" Content="强制置顶" Margin="0,0,0,4"/>
+                        <CheckBox x:Name="ChkBackground" Content="窗口背景" Margin="0,0,0,4"/>
+                        <CheckBox x:Name="ChkBorder" Content="窗口边框" Margin="0,0,0,10"/>
+
+                        <TextBlock Text="水平锚点" FontWeight="SemiBold"/>
+                        <ComboBox x:Name="CmbAnchor" Margin="0,4,0,10">
+                            <ComboBoxItem Content="左侧" Tag="0"/>
+                            <ComboBoxItem Content="居中" Tag="1"/>
+                            <ComboBoxItem Content="右侧" Tag="2"/>
+                        </ComboBox>
+
+                        <TextBlock Text="窗口宽度（手动，自动宽度关时生效）" FontWeight="SemiBold"/>
+                        <Slider x:Name="SldManualWidth" Minimum="200" Maximum="1200" TickFrequency="20" Margin="0,4,0,2"/>
+                        <TextBlock x:Name="TxtManualWidth" FontSize="11" Foreground="Gray" Margin="0,0,0,6"/>
+
+                        <TextBlock Text="X 偏移" FontWeight="SemiBold"/>
+                        <Slider x:Name="SldXOffset" Minimum="-200" Maximum="200" TickFrequency="10" Margin="0,4,0,2"/>
+                        <TextBlock x:Name="TxtXOffset" FontSize="11" Foreground="Gray" Margin="0,0,0,6"/>
+
+                        <TextBlock Text="Y 偏移" FontWeight="SemiBold"/>
+                        <Slider x:Name="SldYOffset" Minimum="-100" Maximum="100" TickFrequency="5" Margin="0,4,0,2"/>
+                        <TextBlock x:Name="TxtYOffset" FontSize="11" Foreground="Gray" Margin="0,0,0,10"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ====== 高级 ====== -->
+            <TabItem Header="高级">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="12">
+                        <CheckBox x:Name="ChkPlayerAutoShow" Content="检测到播放时自动显示歌词" Margin="0,0,0,4"/>
+                        <CheckBox x:Name="ChkPlayerAutoHide" Content="播放停止后自动隐藏歌词" Margin="0,0,0,4"/>
+                        <CheckBox x:Name="ChkAutoStart" Content="开机自启动" Margin="0,0,0,6"/>
+                        <CheckBox x:Name="ChkAutoSpace" Content="自动检测任务栏空余区域" Margin="0,0,0,6"/>
+                        <CheckBox x:Name="ChkPlayerCache" Content="共享播放器歌词缓存" Margin="0,0,0,4"/>
+
+                        <TextBlock Text="播放器缓存目录（每行一个，留空自动检测）" FontWeight="SemiBold"/>
+                        <TextBox x:Name="TxtCacheFolders" AcceptsReturn="True" Height="50" TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto" Margin="0,4,0,2" FontFamily="Consolas"/>
+                        <Button x:Name="BtnDetectCache" Content="填入常见缓存位置" Width="140" Height="24"
+                                Click="BtnDetectCache_Click" FontSize="11" Margin="0,0,0,10"/>
+
+                        <TextBlock Text="音乐目录（每行一个，用于查找内嵌歌词和封面）" FontWeight="SemiBold"/>
+                        <TextBox x:Name="TxtFolders" AcceptsReturn="True" Height="70" TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto" Margin="0,4,0,10" FontFamily="Consolas"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>

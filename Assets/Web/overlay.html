@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://appassets.local/overlay.css">
+</head>
+<body>
+<div id="root" class="layout-horizontal">
+  <!-- Cover Area -->
+  <div id="coverArea" class="cover-rounded">
+    <img id="coverImg" src="" alt="">
+    <div id="coverPlaceholder">🎵</div>
+  </div>
+
+  <!-- Content Area -->
+  <div id="contentArea">
+    <div id="trackInfoLine" class="visible">等待播放中...</div>
+    <div id="lyricsArea" class="lyrics-container">
+      <div class="lyric-row" id="rowCurrent">
+        <span class="lyric-bg" id="curBg"></span>
+        <span class="lyric-fg" id="curFg"></span>
+      </div>
+      <div class="lyric-row" id="rowNext">
+        <span class="lyric-bg" id="nextBg"></span>
+        <span class="lyric-fg" id="nextFg"></span>
+      </div>
+    </div>
+    <canvas id="spectrum"></canvas>
+  </div>
+</div>
+<script src="https://appassets.local/overlay.js"></script>
+</body>
+</html>
