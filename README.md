@@ -64,3 +64,10 @@ dotnet build -c Release
 # 运行测试
 cd LyricsTest && dotnet run
 ```
+
+## 📜 许可证
+
+本项目基于 **MIT License** 开源，详见 [LICENSE](LICENSE)。
+
+第三方组件声明见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)（含 WebView2/SQLite 等依赖与字体许可证）。
+
