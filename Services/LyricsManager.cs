@@ -460,6 +460,9 @@ public partial class LyricsManager
         return 0;
     }
 
+    // 音频索引总量上限（防止超大音乐库拖垮扫描与匹配）
+    private const int IndexFileCap = 20000;
+
     private void EnsureIndex()
     {
         if (_indexReady) return;
@@ -467,7 +470,7 @@ public partial class LyricsManager
         {
             if (_indexReady) return;
 
-            // Try load cached index first
+            // 先加载缓存索引（毫秒级就绪，避免首次切歌等待扫描）
             var cachePath = Path.Combine(AppSettingsDir, "audio_index.json");
             try
             {
@@ -479,43 +482,72 @@ public partial class LyricsManager
                     {
                         _audioFiles.AddRange(cached);
                         _indexReady = true;
+                        // 每次启动后台重建索引：捕获新增/移动的音乐文件（不阻塞切歌）
+                        _ = Task.Run(ScanAndSaveAsync);
                         return;
                     }
                 }
             }
             catch { }
 
-            // Scan in parallel (timeout after 5s total)
-            var results = new ConcurrentBag<string>();
-            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            try
-            {
-                Parallel.ForEach(MusicFolders, new ParallelOptions { CancellationToken = cts.Token }, folder =>
-                {
-                    try
-                    {
-                        var files = Directory.EnumerateFiles(folder, "*.*", SearchOption.TopDirectoryOnly)
-                            .Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()))
-                            .Take(2000);
-                        foreach (var f in files) results.Add(f);
-                    }
-                    catch { }
-                });
-            }
-            catch (OperationCanceledException) { }
-            _audioFiles.AddRange(results);
-
-            // Save index async (don't block)
-            try
-            {
-                Directory.CreateDirectory(AppSettingsDir);
-                var json = JsonSerializer.Serialize(_audioFiles);
-                _ = Task.Run(() => { try { File.WriteAllText(cachePath, json); } catch { } });
-            }
-            catch { }
-
+            // 无缓存：同步扫描（递归子目录，5s 超时）
+            ScanAndSave();
             _indexReady = true;
         }
+    }
+
+    /// <summary>
+    /// 递归扫描音乐文件夹（SearchOption.AllDirectories）建立音频索引，合并已有结果并保存缓存。
+    /// 原实现仅扫顶层目录：嵌套文件夹（如 音乐/歌手/专辑/歌.mp3）中的本地歌词/内嵌歌词/封面全部匹配不到，
+    /// 这是“获取不到歌词”的常见根因。
+    /// </summary>
+    private void ScanAndSave()
+    {
+        var results = new ConcurrentBag<string>();
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        try
+        {
+            Parallel.ForEach(MusicFolders, new ParallelOptions { CancellationToken = cts.Token }, folder =>
+            {
+                try
+                {
+                    var files = Directory.EnumerateFiles(folder, "*.*", SearchOption.AllDirectories)
+                        .Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()));
+                    foreach (var f in files)
+                    {
+                        if (results.Count >= IndexFileCap) break;
+                        results.Add(f);
+                    }
+                }
+                catch { }
+            });
+        }
+        catch (OperationCanceledException) { }
+
+        lock (_indexLock)
+        {
+            // 合并（去重）：保留已有索引，避免扫描超时/部分成功导致索引缩水
+            var known = new HashSet<string>(_audioFiles, StringComparer.OrdinalIgnoreCase);
+            foreach (var f in results)
+                if (known.Add(f))
+                    _audioFiles.Add(f);
+        }
+
+        try
+        {
+            Directory.CreateDirectory(AppSettingsDir);
+            var cachePath = Path.Combine(AppSettingsDir, "audio_index.json");
+            File.WriteAllText(cachePath, JsonSerializer.Serialize(_audioFiles));
+        }
+        catch { }
+    }
+
+    private async Task ScanAndSaveAsync()
+    {
+        // 稍等，避免与切歌/歌词获取首帧争抢 IO
+        await Task.Delay(1500);
+        try { ScanAndSave(); }
+        catch { }
     }
 
     private static string AppSettingsDir => Path.Combine(

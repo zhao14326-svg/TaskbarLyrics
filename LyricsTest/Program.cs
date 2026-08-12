@@ -270,7 +270,32 @@ try
 }
 finally { try { Directory.Delete(lrDir, true); } catch { } }
 
-Console.WriteLine($"\n最终结果: {(ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8 && ok9 && ok10 && ok11 && ok12 && ok13 && ok14 && ok15 && ok16 && ok17 ? "全部通过 🎉" : "存在失败项")}");
+// ============ 测试18: 嵌套子目录递归扫描（本地歌词匹配不到是常见根因） ============
+Console.WriteLine("\n=== 测试18: 嵌套子目录递归扫描本地歌词 ===");
+var nestDir = Path.Combine(Path.GetTempPath(), $"lyrics_nest_{Environment.TickCount64}");
+var subDir = Path.Combine(nestDir, "歌手名", "专辑名");
+Directory.CreateDirectory(subDir);
+bool ok18 = false;
+try
+{
+    CreateTestFlacWithDuration(Path.Combine(subDir, "嵌套歌曲.flac"), 8000, 80000); // 10s
+    File.WriteAllText(Path.Combine(subDir, "嵌套歌曲.lrc"),
+        "[00:00.00]嵌套歌词第一句\n[00:05.00]嵌套歌词第二句");
+    var lm18 = new LyricsManager { MusicFolders = new[] { nestDir }, PlayerCache = new PlayerLyricsCache { Enabled = false }, EnableOnline = false };
+    lm18.ResetIndex();
+    var idxField18 = typeof(LyricsManager).GetField("_indexReady",
+        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+    for (int i = 0; i < 100 && idxField18?.GetValue(lm18) is not true; i++)
+        await Task.Delay(50);
+    var d18 = await lm18.GetLyricsAsync(new MediaTrack("嵌套歌曲", "", "", "test", "Playing", TimeSpan.Zero, TimeSpan.Zero, null));
+    // 旧实现仅扫顶层目录，子目录中的 .lrc 永远匹配不到
+    ok18 = d18 is { IsEmpty: false } && d18.Lines.Count == 2 && d18.Source == "本地LRC文件";
+    Console.WriteLine($"  行数: {d18?.Lines.Count}, 来源: {d18?.Source}");
+    Console.WriteLine(ok18 ? "✅ 嵌套目录递归扫描通过" : "❌ 嵌套目录递归扫描失败");
+}
+finally { try { Directory.Delete(nestDir, true); } catch { } }
+
+Console.WriteLine($"\n最终结果: {(ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8 && ok9 && ok10 && ok11 && ok12 && ok13 && ok14 && ok15 && ok16 && ok17 && ok18 ? "全部通过 🎉" : "存在失败项")}");
 
 // ==================== 测试文件构造 ====================
 
