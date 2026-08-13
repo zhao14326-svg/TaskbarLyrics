@@ -139,11 +139,11 @@ public class TrackDetector : ITrackDetector
         if (_currentTrack != null &&
             ((DateTime.UtcNow - _lastDetectedAt).TotalSeconds < 30 || IsPlayerAlive()))
         {
-            _logger.LogTrace("所有来源失效，保持当前曲目: {Title}", _currentTrack.Title);
+            _logger.LogDebug("所有来源失效，保持当前曲目: {Title}", _currentTrack.Title);
             return _currentTrack;
         }
 
-        _logger.LogTrace("播放器已退出或无当前曲目，清空检测");
+        _logger.LogDebug("播放器已退出或无当前曲目，清空检测");
         _lastId = "";
         return null;
     }

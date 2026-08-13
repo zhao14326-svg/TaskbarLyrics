@@ -1,8 +1,10 @@
 ﻿using System.Drawing;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Serilog;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
 using TaskbarLyrics.Helpers;
@@ -73,7 +75,18 @@ public partial class App : System.Windows.Application
 
         // 配置依赖注入容器（单例：全部服务共享一份）
         var sc = new ServiceCollection();
-        sc.AddLogging(b => b.AddDebug());
+        // Serilog 文件日志：写入 exe 旁 logs 目录（诊断曲目检测来源/歌词获取）
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Debug()
+            .WriteTo.File(Path.Combine(AppContext.BaseDirectory, "logs", "taskbarlyrics-.log"),
+                rollingInterval: RollingInterval.Day,
+                fileSizeLimitBytes: 5_000_000,
+                rollOnFileSizeLimit: true,
+                retainedFileCountLimit: 5,
+                shared: true,
+                outputTemplate: "{Timestamp:HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
+            .CreateLogger();
+        sc.AddLogging(b => { b.ClearProviders(); b.AddSerilog(); });
         sc.AddSingleton<TrackNormalizer>();
         sc.AddSingleton<WindowTitleParser>();
         sc.AddSingleton<SmtcResolver>();
