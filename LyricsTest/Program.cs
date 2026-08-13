@@ -1,6 +1,9 @@
-using System.Text;
+﻿using System.Text;
 using System.Diagnostics;
 using TaskbarLyrics.Services;
+
+// 测试隔离缓存库：避免跨测试运行命中持久化 SQLite 缓存（如上一轮的“嵌套歌曲”缓存）
+var testCacheDb = Path.Combine(Path.GetTempPath(), $"test_lrc_cache_{Guid.NewGuid():N}.db");
 
 // ============ 测试1: LRC 解析 ============
 Console.WriteLine("=== 测试1: LRC 解析器 ===");
@@ -26,7 +29,7 @@ Console.WriteLine(ok1 ? "✅ LRC解析通过" : "❌ LRC解析失败");
 Console.WriteLine("\n=== 测试2: MP3 ID3v2 USLT 内嵌歌词 ===");
 var mp3Path = Path.Combine(Path.GetTempPath(), "test_lyrics.mp3");
 CreateTestMp3WithUslt(mp3Path);
-var embedded = await AudioTagLyricsReader.ReadFromFileAsync(mp3Path);
+var embedded = await new AudioTagLyricsReader().ReadFromFileAsync(mp3Path);
 Console.WriteLine($"读取到: {(embedded == null ? "null" : $"{embedded.Lines.Count}行, 来源: {embedded.Source}")}");
 if (embedded != null)
     foreach (var line in embedded.Lines.Take(3))
@@ -38,7 +41,7 @@ Console.WriteLine(ok2 ? "✅ MP3内嵌歌词读取通过" : "❌ MP3内嵌歌词
 Console.WriteLine("\n=== 测试3: FLAC Vorbis 注释内嵌歌词 ===");
 var flacPath = Path.Combine(Path.GetTempPath(), "test_lyrics.flac");
 CreateTestFlacWithVorbisLyrics(flacPath);
-var flacLyrics = await AudioTagLyricsReader.ReadFromFileAsync(flacPath);
+var flacLyrics = await new AudioTagLyricsReader().ReadFromFileAsync(flacPath);
 Console.WriteLine($"读取到: {(flacLyrics == null ? "null" : $"{flacLyrics.Lines.Count}行, 来源: {flacLyrics.Source}")}");
 if (flacLyrics != null)
     foreach (var line in flacLyrics.Lines.Take(3))
@@ -111,8 +114,8 @@ Console.WriteLine(ok8 ? "✅ 带翻译往返通过" : "❌ 带翻译往返失败
 
 // ============ 测试9: 两阶段渐进加载 - 缓存命中立即返回（不等待在线） ============
 Console.WriteLine("\n=== 测试9: 两阶段渐进加载 - 缓存命中立即返回 ===");
-var lm = new LyricsManager { MusicFolders = Array.Empty<string>(), PlayerCache = new PlayerLyricsCache { Enabled = false }, EnableOnline = true };
-LyricCacheService.Store("测试歌曲两阶段", "测试歌手", "[00:00.00]第一句\n[00:05.00]第二句", "本地");
+var lm = CreateTestLyricsManager(Array.Empty<string>(), true, testCacheDb);
+new LyricCacheService(testCacheDb).Store("测试歌曲两阶段", "测试歌手", "[00:00.00]第一句\n[00:05.00]第二句", "本地");
 var sw9 = Stopwatch.StartNew();
 var cachedLyrics = await lm.GetLyricsAsync(new MediaTrack("测试歌曲两阶段", "测试歌手", "", "test", "Playing", TimeSpan.Zero, TimeSpan.Zero, null));
 sw9.Stop();
@@ -122,7 +125,7 @@ Console.WriteLine(ok9 ? "✅ 缓存命中快速返回通过" : "❌ 缓存命中
 
 // ============ 测试10: 两阶段渐进加载 - 无本地/无在线时快速返回 null ============
 Console.WriteLine("\n=== 测试10: 两阶段渐进加载 - 无来源快速失败 ===");
-var lm2 = new LyricsManager { MusicFolders = Array.Empty<string>(), PlayerCache = new PlayerLyricsCache { Enabled = false }, EnableOnline = false };
+var lm2 = CreateTestLyricsManager(Array.Empty<string>());
 var randomKey = $"NoSuchSong{Environment.TickCount64}";
 var sw10 = Stopwatch.StartNew();
 var noneLyrics = await lm2.GetLyricsAsync(new MediaTrack(randomKey, "NoArtist", "", "test", "Playing", TimeSpan.Zero, TimeSpan.Zero, null));
@@ -156,9 +159,9 @@ Console.WriteLine(ok11 ? "✅ 作词作曲保留且稳定切换通过" : "❌ �
 
 // ============ 测试12: 内存保留 - ABAB 来回切歌零重新解析 ============
 Console.WriteLine("\n=== 测试12: 内存保留 - ABAB 来回切歌零重新解析 ===");
-var lm3 = new LyricsManager { MusicFolders = Array.Empty<string>(), PlayerCache = new PlayerLyricsCache { Enabled = false }, EnableOnline = false };
+var lm3 = CreateTestLyricsManager(Array.Empty<string>(), cacheDb: testCacheDb);
 var storeKey = $"内存保留{Environment.TickCount64}";
-LyricCacheService.Store(storeKey, "测试歌手", "[00:00.00]第一句\n[00:05.00]第二句", "本地");
+new LyricCacheService(testCacheDb).Store(storeKey, "测试歌手", "[00:00.00]第一句\n[00:05.00]第二句", "本地");
 var trackA = new MediaTrack(storeKey, "测试歌手", "", "test", "Playing", TimeSpan.Zero, TimeSpan.Zero, null);
 var first12 = await lm3.GetLyricsAsync(trackA);
 lm3.Current = null; // 模拟切歌：Overlay 清空 Current
@@ -197,7 +200,7 @@ Console.WriteLine(ok13 ? "✅ 滚动序列通过" : "❌ 滚动序列失败");
 
 // ============ 测试14: 拖进度条回滚 AlignTo（歌词跟随进度条） ============
 Console.WriteLine("\n=== 测试14: 拖进度条回滚 AlignTo ===");
-var det = new TrackDetector();
+var det = new TrackDetector(new SmtcMediaService());
 // 通过反射注入当前曲目（生产环境由窗口/SMTC 检测设置），使 GetPosition 可用
 var field = typeof(TrackDetector).GetField("_currentTrack",
     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
@@ -233,11 +236,11 @@ Console.WriteLine(ok15 ? "✅ 时长估算通过" : "❌ 时长估算失败");
 Console.WriteLine("\n=== 测试16: 音频文件时长读取 ===");
 var durMp3 = Path.Combine(Path.GetTempPath(), $"test_dur_{Environment.TickCount64}.mp3");
 CreateTestMp3WithDuration(durMp3, 128, 16 * 1024); // 128kbps + 16KB 音频数据 → ≈1.0s
-var mp3Dur = await AudioTagLyricsReader.ReadDurationAsync(durMp3);
+var mp3Dur = await new AudioTagLyricsReader().ReadDurationAsync(durMp3);
 Console.WriteLine($"  MP3 128kbps/16KB → {mp3Dur:F3}s (期望≈1.0s)");
 var durFlac = Path.Combine(Path.GetTempPath(), $"test_dur_{Environment.TickCount64}.flac");
 CreateTestFlacWithDuration(durFlac, 8192, 8192);   // 8192Hz / 8192 样本 → 1.0s
-var flacDur = await AudioTagLyricsReader.ReadDurationAsync(durFlac);
+var flacDur = await new AudioTagLyricsReader().ReadDurationAsync(durFlac);
 Console.WriteLine($"  FLAC 8192Hz/8192样本 → {flacDur:F3}s (期望1.0s)");
 bool ok16 = Math.Abs(mp3Dur - 1.0) < 0.3 && Math.Abs(flacDur - 1.0) < 0.05;
 Console.WriteLine(ok16 ? "✅ 音频时长读取通过" : "❌ 音频时长读取失败");
@@ -253,7 +256,7 @@ try
     CreateTestFlacWithDuration(Path.Combine(lrDir, "测试歌曲A.flac"), 8000, 160000); // 20s
     File.WriteAllText(Path.Combine(lrDir, "测试歌曲A.lrc"),
         string.Join("\n", Enumerable.Range(1, 10).Select(i => $"第{i}句")));          // 10行
-    var lm17 = new LyricsManager { MusicFolders = new[] { lrDir }, PlayerCache = new PlayerLyricsCache { Enabled = false }, EnableOnline = false };
+    var lm17 = CreateTestLyricsManager(new[] { lrDir });
     lm17.ResetIndex();
     // ResetIndex 为后台异步重建索引；生产环境由启动 WarmUp 预构建，这里轮询等待就绪
     var idxField = typeof(LyricsManager).GetField("_indexReady",
@@ -281,7 +284,7 @@ try
     CreateTestFlacWithDuration(Path.Combine(subDir, "嵌套歌曲.flac"), 8000, 80000); // 10s
     File.WriteAllText(Path.Combine(subDir, "嵌套歌曲.lrc"),
         "[00:00.00]嵌套歌词第一句\n[00:05.00]嵌套歌词第二句");
-    var lm18 = new LyricsManager { MusicFolders = new[] { nestDir }, PlayerCache = new PlayerLyricsCache { Enabled = false }, EnableOnline = false };
+    var lm18 = CreateTestLyricsManager(new[] { nestDir });
     lm18.ResetIndex();
     var idxField18 = typeof(LyricsManager).GetField("_indexReady",
         System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
@@ -409,4 +412,19 @@ static void CreateTestFlacWithDuration(string path, int sampleRate, long totalSa
     var dummy = new byte[64];
     new Random(13).NextBytes(dummy);
     fs.Write(dummy, 0, dummy.Length);
+}
+
+// 测试辅助：手动装配歌词管理器依赖（测试环境无 DI 容器）
+static LyricsManager CreateTestLyricsManager(string[] folders, bool enableOnline = false, string? cacheDb = null)
+{
+    return new LyricsManager(
+        new OnlineLyricsService(new NeteaseApi()),
+        new PlayerLyricsCache { Enabled = false },
+        new PlayerLocalApiService(),
+        new LyricCacheService(cacheDb ?? Path.Combine(Path.GetTempPath(), $"test_lrc_cache_{Guid.NewGuid():N}.db")),
+        new AudioTagLyricsReader())
+    {
+        MusicFolders = folders,
+        EnableOnline = enableOnline,
+    };
 }

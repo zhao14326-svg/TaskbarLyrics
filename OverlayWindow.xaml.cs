@@ -14,7 +14,10 @@ namespace TaskbarLyrics;
 public partial class OverlayWindow : Window
 {
     private readonly AppSettings _settings;
-    private readonly LyricsManager _lyrics;
+    private readonly ILyricsManager _lyrics;
+    private readonly ISmtcMediaService _smtc;
+    private readonly ICoverArtService _coverArt;
+    private readonly IPlayerLocalApiService _localApi;
     private readonly Random _rng = new();
     // 后台线程定时器替代 DispatcherTimer：DispatcherTimer 依赖低优先级 WM_TIMER，
     // 会被 WebView2 的 WM_PAINT 消息洪泛饿死（tick 从 250ms 恶化到数秒，导致歌词冻结不滚动）。
@@ -34,7 +37,7 @@ public partial class OverlayWindow : Window
     // 用户手动隐藏标志（托盘/设置按钮）：意外隐藏恢复逻辑不干扰手动隐藏
     private bool _userHidden;
 
-    private readonly TrackDetector _detector = new();
+    private readonly ITrackDetector _detector;
 
     // Spectrum simulation
     private float[] _specBands = new float[24];
@@ -77,11 +80,18 @@ public partial class OverlayWindow : Window
     // Auto-size
     private double _reportedContentW, _reportedContentH;
 
-    public OverlayWindow(AppSettings settings, LyricsManager lyrics)
+    public OverlayWindow(AppSettings settings, ILyricsManager lyrics,
+        ISmtcMediaService smtc, ICoverArtService coverArt, IPlayerLocalApiService localApi)
     {
         InitializeComponent();
         _settings = settings;
         _lyrics = lyrics;
+        _smtc = smtc;
+        _coverArt = coverArt;
+        _localApi = localApi;
+        _detector = smtc is not null
+            ? new TrackDetector(smtc)
+            : throw new ArgumentNullException(nameof(smtc));
         Topmost = _settings.AlwaysOnTop;
         CompositionTarget.Rendering += OnRendering;
         Loaded += OnLoaded;
@@ -123,7 +133,7 @@ public partial class OverlayWindow : Window
         // 启动即“归零 + 预热”：重置校准状态到零点，并立即预热 SMTC，
         // 使首个刷新帧就能读到真实播放进度完成自动校准
         _detector.Reset();
-        SmtcMediaService.WarmUp();
+        _smtc.WarmUp();
 
         if (_settings.PlayerAutoHide)
         {
@@ -346,7 +356,7 @@ public partial class OverlayWindow : Window
 
         // ---- SMTC 实时校准 ----
         SmtcMediaService.SmtcSnapshot? snap = null;
-        try { snap = SmtcMediaService.PollSnapshot(); } catch { }
+        try { snap = _smtc.PollSnapshot(); } catch { }
 
         // 会话应用变化 → 失效旧的信任关系，需要重新验证
         if (_verifiedApp != null && snap != null && snap.AppId != _verifiedApp)
@@ -359,7 +369,7 @@ public partial class OverlayWindow : Window
         // 无信任会话时异步验证一次（同一应用只验证一次，避免每次切歌都等待）
         if (track != null && snap != null && _smtcApp == null &&
             snap.AppId != _verifiedApp && _pendingSmtc == null)
-            _pendingSmtc = SmtcMediaService.GetFromSmtcOnlyAsync();
+            _pendingSmtc = _smtc.GetFromSmtcOnlyAsync();
         if (_pendingSmtc is { IsCompleted: true })
         {
             var smtc = _pendingSmtc.Result;
@@ -508,7 +518,7 @@ public partial class OverlayWindow : Window
                         // 封面附带 SMTC 缩略图,本地/在线失败时作为兜底
                         var coverTrack = new MediaTrack(capTrack.Title, capTrack.Artist, capTrack.Album,
                             capTrack.PlaybackApp, capTrack.PlaybackStatus, capTrack.Position, capTrack.Duration, _smtcThumb);
-                        var cb = await CoverArtService.GetCoverAsync(coverTrack, _lyrics.AudioFiles, _settings.CoverSourceStrategy);
+                        var cb = await _coverArt.GetCoverAsync(coverTrack, _lyrics.AudioFiles, _settings.CoverSourceStrategy);
                         // 乱序保护：仅“曲目已切换”时才要求序号匹配（丢弃旧歌封面，避免旧封面覆盖新封面）；
                         // 曲目未变（页面重载/ready 重置导致重复请求使序号递增）时直接显示，
                         // 避免封面请求被序号反复淘汰而“永不加载”。
@@ -644,7 +654,7 @@ public partial class OverlayWindow : Window
         _localApiCheckedAt = now;
         try
         {
-            var t = await PlayerLocalApiService.GetTrackAsync().ConfigureAwait(false);
+            var t = await _localApi.GetTrackAsync().ConfigureAwait(false);
             _localApiPlaying = t == null
                 ? null
                 : t.PlaybackStatus.Equals("Playing", StringComparison.OrdinalIgnoreCase);
@@ -801,7 +811,7 @@ public partial class OverlayWindow : Window
     {
         PostMessage("cover", new Dictionary<string, object?>
         {
-            ["cover"] = CoverArtService.ToDataUri(coverBytes)
+            ["cover"] = _coverArt.ToDataUri(coverBytes)
         });
     }
 
@@ -812,7 +822,7 @@ public partial class OverlayWindow : Window
             ["title"] = track.Title,
             ["artist"] = track.Artist,
             ["album"] = track.Album,
-            ["cover"] = CoverArtService.ToDataUri(coverBytes)
+            ["cover"] = _coverArt.ToDataUri(coverBytes)
         });
     }
 

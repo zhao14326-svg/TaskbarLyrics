@@ -1,19 +1,28 @@
-using System.Net.Http;
+﻿using System.Net.Http;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using TaskbarLyrics.Models;
 
 namespace TaskbarLyrics.Services;
 
+/// <summary>在线歌词获取。</summary>
+public interface IOnlineLyricsService
+{
+    /// <summary>并行尝试 lrclib 精确 / 网易云 / lrclib 宽搜，返回首个有效歌词。</summary>
+    Task<LyricsData?> FetchAsync(string title, string artist, string? album = null, double durationSec = 0);
+}
+
 /// <summary>
 /// 在线歌词获取。主源：lrclib.net（稳定、免费）；备源：网易云音乐搜索。
 /// </summary>
-public partial class OnlineLyricsService
+public partial class OnlineLyricsService : IOnlineLyricsService
 {
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(2) };
+    private readonly INeteaseApi _netease;
 
-    public OnlineLyricsService()
+    public OnlineLyricsService(INeteaseApi netease)
     {
+        _netease = netease;
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 TaskbarLyrics/2.0");
     }
 
@@ -140,7 +149,7 @@ public partial class OnlineLyricsService
 
     private async Task<LyricsData?> FetchFromNetease(string title, string artist, double durationSec)
     {
-        var songs = await NeteaseApi.SearchSongsAsync(title, artist, 10);
+        var songs = await _netease.SearchSongsAsync(title, artist, 10);
         if (songs.Count == 0) return null;
 
         // 标题 + 歌手 + 时长加权打分，选择最匹配的一首
@@ -174,7 +183,7 @@ public partial class OnlineLyricsService
 
         if (bestId <= 0 || bestScore < 10) return null;
 
-        var (lrcText, tlyric) = await NeteaseApi.FetchLyricAsync(bestId);
+        var (lrcText, tlyric) = await _netease.FetchLyricAsync(bestId);
         if (string.IsNullOrWhiteSpace(lrcText)) return null;
 
         var data = LrcParser.ParseLyrics(lrcText, LrcParser.EstimatePlainInterval(durationSec, lrcText));

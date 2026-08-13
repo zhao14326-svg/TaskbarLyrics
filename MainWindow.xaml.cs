@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using TaskbarLyrics.Services;
 
@@ -8,9 +8,11 @@ namespace TaskbarLyrics;
 public partial class MainWindow : Window
 {
     private readonly System.Windows.Threading.DispatcherTimer _timer;
+    private readonly ISmtcMediaService _smtc;
 
-    public MainWindow()
+    public MainWindow(ISmtcMediaService smtc)
     {
+        _smtc = smtc;
         InitializeComponent();
         LoadSettings();
         WireSliders();
@@ -132,7 +134,7 @@ public partial class MainWindow : Window
         if (!IsVisible) return; // 设置窗口隐藏时不扫描，防止无谓的全进程枚举
         try
         {
-            var track = await SmtcMediaService.GetCurrentTrackAsync();
+            var track = await _smtc.GetCurrentTrackAsync();
             if (track == null)
                 TxtStatus.Text = "当前没有检测到播放中的音乐";
             else

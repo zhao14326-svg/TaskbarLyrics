@@ -1,6 +1,7 @@
-using System.Drawing;
+﻿using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
 using TaskbarLyrics.Helpers;
@@ -18,20 +19,13 @@ public partial class App : System.Windows.Application
     public static CoreWebView2Environment? WebView2Env { get; private set; }
 
     public static AppSettings Settings { get; } = AppSettings.Load();
-    public static LyricsManager Lyrics { get; } = new()
-    {
-        MusicFolders = Settings.MusicFolders.Count > 0
-            ? Settings.MusicFolders.ToArray()
-            : LyricsManager.DefaultMusicFolders,
-        EnableOnline = Settings.EnableOnline,
-        PlayerCache = new PlayerLyricsCache
-        {
-            Enabled = Settings.EnablePlayerCache,
-            CacheFolders = Settings.PlayerCacheFolders.Count > 0
-                ? Settings.PlayerCacheFolders.ToArray()
-                : PlayerLyricsCache.DefaultCacheFolders
-        }
-    };
+
+    /// <summary>依赖注入容器（OnStartup 中构建）。</summary>
+    public static IServiceProvider Services { get; private set; } = null!;
+
+    /// <summary>歌词管理器（从 DI 容器解析）。</summary>
+    public static ILyricsManager Lyrics => Services.GetRequiredService<ILyricsManager>();
+
     public static OverlayWindow Overlay { get; private set; } = null!;
 
     [DllImport("user32.dll")]
@@ -76,13 +70,41 @@ public partial class App : System.Windows.Application
 
         base.OnStartup(e);
 
-        // 后台预热歌词/音频索引，减少首次切歌时的本地检索延迟
-        Lyrics.WarmUp();
+        // 配置依赖注入容器（单例：全部服务共享一份）
+        var sc = new ServiceCollection();
+        sc.AddSingleton<INeteaseApi, NeteaseApi>();
+        sc.AddSingleton<IAudioTagLyricsReader, AudioTagLyricsReader>();
+        sc.AddSingleton<ILyricCacheService, LyricCacheService>();
+        sc.AddSingleton<IPlayerLocalApiService, PlayerLocalApiService>();
+        sc.AddSingleton<ICoverArtService, CoverArtService>();
+        sc.AddSingleton<IPlayerLyricsCache, PlayerLyricsCache>();
+        sc.AddSingleton<IOnlineLyricsService, OnlineLyricsService>();
+        sc.AddSingleton<ISmtcMediaService, SmtcMediaService>();
+        sc.AddSingleton<ITrackDetector, TrackDetector>();
+        sc.AddSingleton<ILyricsManager, LyricsManager>();
+        Services = sc.BuildServiceProvider();
 
-        Overlay = new OverlayWindow(Settings, Lyrics);
+        // 应用用户设置到歌词管理器
+        var lyrics = Lyrics;
+        lyrics.MusicFolders = Settings.MusicFolders.Count > 0
+            ? Settings.MusicFolders.ToArray()
+            : LyricsManager.DefaultMusicFolders;
+        lyrics.EnableOnline = Settings.EnableOnline;
+        lyrics.PlayerCache.Enabled = Settings.EnablePlayerCache;
+        lyrics.PlayerCache.CacheFolders = Settings.PlayerCacheFolders.Count > 0
+            ? Settings.PlayerCacheFolders.ToArray()
+            : PlayerLyricsCache.DefaultCacheFolders;
+
+        // 后台预热歌词/音频索引，减少首次切歌时的本地检索延迟
+        lyrics.WarmUp();
+
+        Overlay = new OverlayWindow(Settings, lyrics,
+            Services.GetRequiredService<ISmtcMediaService>(),
+            Services.GetRequiredService<ICoverArtService>(),
+            Services.GetRequiredService<IPlayerLocalApiService>());
         Overlay.Show();
 
-        _mainWindow = new MainWindow();
+        _mainWindow = new MainWindow(Services.GetRequiredService<ISmtcMediaService>());
         _mainWindow.Closing += (_, _) => _mainWindow.Hide();
 
         SetupTray();
@@ -126,7 +148,7 @@ public partial class App : System.Windows.Application
         // Window may have been closed — WPF can't reopen closed windows
         if (_mainWindow == null || !_mainWindow.IsLoaded)
         {
-            _mainWindow = new MainWindow();
+            _mainWindow = new MainWindow(Services.GetRequiredService<ISmtcMediaService>());
             _mainWindow.Closing += (_, e) => { e.Cancel = true; _mainWindow.Hide(); };
         }
         _mainWindow.Show();

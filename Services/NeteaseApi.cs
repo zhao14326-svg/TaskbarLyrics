@@ -1,30 +1,41 @@
-using System.Net.Http;
+﻿using System.Net.Http;
 using System.Text.Json;
 
 namespace TaskbarLyrics.Services;
+
+/// <summary>网易云音乐 API(搜索/歌词)。</summary>
+public interface INeteaseApi
+{
+    /// <summary>按 歌名+歌手 搜索，返回最多 limit 条结果（按相关度排序）。</summary>
+    Task<List<NeteaseApi.SearchSong>> SearchSongsAsync(string title, string artist, int limit = 10);
+
+    /// <summary>按歌曲 id 获取逐字歌词与翻译（原始 LRC 文本），失败返回 null。</summary>
+    Task<(string? Lrc, string? Translation)> FetchLyricAsync(long songId);
+}
 
 /// <summary>
 /// 网易云音乐 API 封装（搜索 / 歌词 / 封面）。
 /// 使用 web 端 cloudsearch/pc 接口并携带 Referer，避免旧版 api/search/get 被风控拦截的问题。
 /// </summary>
-internal static class NeteaseApi
+public class NeteaseApi : INeteaseApi
 {
-    private static readonly HttpClient Http = new()
-    {
-        Timeout = TimeSpan.FromSeconds(2) // 缩短超时,避免切歌时等待过久
-    };
+    private readonly HttpClient _http;
 
-    static NeteaseApi()
+    public NeteaseApi()
     {
-        Http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) TaskbarLyrics/2.0");
-        Http.DefaultRequestHeaders.Referrer = new Uri("https://music.163.com");
+        _http = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(2) // 缩短超时,避免切歌时等待过久
+        };
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) TaskbarLyrics/2.0");
+        _http.DefaultRequestHeaders.Referrer = new Uri("https://music.163.com");
     }
 
     /// <summary>搜索结果条目。</summary>
     public sealed record SearchSong(long Id, string Name, string Artist, long DurationMs, string AlbumPicUrl);
 
     /// <summary>按 歌名+歌手 搜索，返回最多 limit 条结果（按相关度排序）。</summary>
-    public static async Task<List<SearchSong>> SearchSongsAsync(string title, string artist, int limit = 10)
+    public async Task<List<SearchSong>> SearchSongsAsync(string title, string artist, int limit = 10)
     {
         var result = new List<SearchSong>();
         try
@@ -40,7 +51,7 @@ internal static class NeteaseApi
                 ["limit"] = limit.ToString(),
                 ["total"] = "true"
             });
-            using var resp = await Http.PostAsync("https://music.163.com/api/cloudsearch/pc", form);
+            using var resp = await _http.PostAsync("https://music.163.com/api/cloudsearch/pc", form);
             if (!resp.IsSuccessStatusCode) return result;
 
             var json = await resp.Content.ReadAsStringAsync();
@@ -77,12 +88,12 @@ internal static class NeteaseApi
     }
 
     /// <summary>按歌曲 id 获取逐字歌词与翻译（原始 LRC 文本），失败返回 null。</summary>
-    public static async Task<(string? Lrc, string? Translation)> FetchLyricAsync(long songId)
+    public async Task<(string? Lrc, string? Translation)> FetchLyricAsync(long songId)
     {
         try
         {
             var url = $"https://music.163.com/api/song/lyric?id={songId}&lv=1&kv=1&tv=-1";
-            using var resp = await Http.GetAsync(url);
+            using var resp = await _http.GetAsync(url);
             if (!resp.IsSuccessStatusCode) return (null, null);
             var json = await resp.Content.ReadAsStringAsync();
 

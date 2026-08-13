@@ -1,22 +1,37 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Text.Json;
 
 namespace TaskbarLyrics.Services;
 
+/// <summary>本地播放器 API(网易云)。</summary>
+public interface IPlayerLocalApiService
+{
+    /// <summary>尝试通过本地 API 获取当前播放信息。</summary>
+    Task<MediaTrack?> GetTrackAsync();
+
+    /// <summary>从网易云本地 API 直接获取歌词原文（LRC 文本）。</summary>
+    Task<string?> GetLyricsAsync();
+}
+
 /// <summary>
 /// 直接查询本地播放器的播放状态（SMTC 不可用时的备选方案）。
 /// 网易云音乐通过本地 HTTP API（端口从配置文件读取）。
 /// </summary>
-public static class PlayerLocalApiService
+public class PlayerLocalApiService : IPlayerLocalApiService
 {
-    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromMilliseconds(800) };
-    private static int _neteasePort;
-    private static DateTime _neteasePortCheck;
+    private readonly HttpClient _http;
+    private int _neteasePort;
+    private DateTime _neteasePortCheck;
+
+    public PlayerLocalApiService()
+    {
+        _http = new HttpClient { Timeout = TimeSpan.FromMilliseconds(800) };
+    }
 
     /// <summary>尝试通过本地 API 获取当前播放信息。</summary>
-    public static async Task<MediaTrack?> GetTrackAsync()
+    public async Task<MediaTrack?> GetTrackAsync()
     {
         var track = await GetFromNeteaseApi();
         if (track != null) return track;
@@ -24,7 +39,7 @@ public static class PlayerLocalApiService
     }
 
     /// <summary>Try to get lyrics directly from NetEase local API. Returns raw LRC text.</summary>
-    public static async Task<string?> GetLyricsAsync()
+    public async Task<string?> GetLyricsAsync()
     {
         if (_neteasePort == 0 && (DateTime.UtcNow - _neteasePortCheck).TotalSeconds < 30)
             return null;
@@ -105,7 +120,7 @@ public static class PlayerLocalApiService
 
     // ==================== 网易云本地 API ====================
 
-    private static async Task<MediaTrack?> GetFromNeteaseApi()
+    private async Task<MediaTrack?> GetFromNeteaseApi()
     {
         // 30 秒缓存：已尝试过且失败就不再重复扫描
         if (_neteasePort == 0 && (DateTime.UtcNow - _neteasePortCheck).TotalSeconds < 30)
@@ -146,7 +161,7 @@ public static class PlayerLocalApiService
     }
 
     /// <summary>读取网易云本地端口配置文件。</summary>
-    private static int FindNeteasePort()
+    private int FindNeteasePort()
     {
         try
         {

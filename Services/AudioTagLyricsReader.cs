@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text;
 using TaskbarLyrics.Models;
 
@@ -8,10 +8,20 @@ namespace TaskbarLyrics.Services;
 /// 从音频文件中读取内嵌歌词、封面和基本元数据（不依赖外部库）。
 /// 支持：MP3 的 ID3v2.2/2.3/2.4 USLT 帧 + APIC/PIC 封面、FLAC 的 Vorbis 注释 LYRICS 标签 + METADATA_BLOCK_PICTURE。
 /// </summary>
-public static class AudioTagLyricsReader
+/// <summary>音频标签读取(内嵌歌词/封面/时长)。</summary>
+public interface IAudioTagLyricsReader
+{
+    (string Artist, string Title) ReadMetaCached(string filePath);
+    Task<double> ReadDurationAsync(string filePath);
+    Task<LyricsData?> ReadFromFileAsync(string filePath);
+    Task<byte[]?> ReadMp3CoverAsync(string path);
+    Task<byte[]?> ReadFlacCoverAsync(string path);
+}
+
+public class AudioTagLyricsReader : IAudioTagLyricsReader
 {
     /// <summary>Read basic Artist + Title from audio file metadata (with cache).</summary>
-    public static (string Artist, string Title) ReadMetaCached(string filePath)
+    public (string Artist, string Title) ReadMetaCached(string filePath)
     {
         var cache = Helpers.AudioMetaCache.TryGet(filePath);
         if (cache != null) return (cache.Artist, cache.Title);
@@ -21,7 +31,7 @@ public static class AudioTagLyricsReader
         return (artist, title);
     }
 
-    private static (string Artist, string Title) ReadMeta(string filePath)
+    private (string Artist, string Title) ReadMeta(string filePath)
     {
         var ext = Path.GetExtension(filePath).ToLowerInvariant();
         try
@@ -37,7 +47,7 @@ public static class AudioTagLyricsReader
     }
 
     /// <summary>从音频文件读取时长(秒)：MP3 按帧头码率估算，FLAC 用 STREAMINFO 总采样数。失败/不支持返回 0。</summary>
-    public static async Task<double> ReadDurationAsync(string filePath)
+    public async Task<double> ReadDurationAsync(string filePath)
     {
         var ext = Path.GetExtension(filePath).ToLowerInvariant();
         try
@@ -52,7 +62,7 @@ public static class AudioTagLyricsReader
         catch { return 0; }
     }
 
-    private static (string, string) ReadMp3Meta(string path)
+    private (string, string) ReadMp3Meta(string path)
     {
         using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         var header = new byte[10];
@@ -104,7 +114,7 @@ public static class AudioTagLyricsReader
     }
 
     /// <summary>MP3 时长估算：跳过 ID3 标签后扫描第一个 MPEG 帧头，按码率估算（CBR/VBR 近似，误差可接受）。</summary>
-    private static async Task<double> ReadMp3DurationAsync(string path)
+    private async Task<double> ReadMp3DurationAsync(string path)
     {
         using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         long dataStart = 0;
@@ -143,13 +153,13 @@ public static class AudioTagLyricsReader
         return 0;
     }
 
-    private static readonly int[] Mpeg1Layer1 = { 0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0 };
-    private static readonly int[] Mpeg1Layer2 = { 0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 0 };
-    private static readonly int[] Mpeg1Layer3 = { 0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0 };
-    private static readonly int[] Mpeg2Layer1 = { 0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256, 0 };
-    private static readonly int[] Mpeg2Layer23 = { 0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0 };
+    private readonly int[] Mpeg1Layer1 = { 0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0 };
+    private readonly int[] Mpeg1Layer2 = { 0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 0 };
+    private readonly int[] Mpeg1Layer3 = { 0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0 };
+    private readonly int[] Mpeg2Layer1 = { 0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256, 0 };
+    private readonly int[] Mpeg2Layer23 = { 0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0 };
 
-    private static int GetMp3BitrateKbps(int version, int layer, int idx)
+    private int GetMp3BitrateKbps(int version, int layer, int idx)
     {
         if (version == 3) return layer switch
         {
@@ -160,7 +170,7 @@ public static class AudioTagLyricsReader
         return layer == 1 ? Mpeg2Layer1[idx] : Mpeg2Layer23[idx];
     }
 
-    private static string DecodeTextFrame(byte[] data, int start, int size)
+    private string DecodeTextFrame(byte[] data, int start, int size)
     {
         if (size < 1) return "";
         int encoding = data[start];
@@ -179,7 +189,7 @@ public static class AudioTagLyricsReader
         };
     }
 
-    private static (string, string) ReadFlacMeta(string path)
+    private (string, string) ReadFlacMeta(string path)
     {
         using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         var magic = new byte[4];
@@ -224,7 +234,7 @@ public static class AudioTagLyricsReader
     }
 
     /// <summary>FLAC 时长：读 STREAMINFO 块的总采样数与采样率。</summary>
-    private static async Task<double> ReadFlacDurationAsync(string path)
+    private async Task<double> ReadFlacDurationAsync(string path)
     {
         using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         if (fs.Length < 8) return 0;
@@ -257,7 +267,7 @@ public static class AudioTagLyricsReader
 
     // Reuse existing static helpers (ReadInt32BE, ReadInt32LE, ReadSyncSafeInt32, ReadExact, DecodeUtf16 are already in this file)
     /// <summary>从音频文件读取内嵌歌词；无内嵌歌词时返回 null</summary>
-    public static async Task<LyricsData?> ReadFromFileAsync(string filePath)
+    public async Task<LyricsData?> ReadFromFileAsync(string filePath)
     {
         try
         {
@@ -312,7 +322,7 @@ public static class AudioTagLyricsReader
     // ==================== Cover Art Extraction ====================
 
     /// <summary>Extract embedded cover art from MP3 ID3v2 APIC frame.</summary>
-    public static async Task<byte[]?> ReadMp3CoverAsync(string path)
+    public async Task<byte[]?> ReadMp3CoverAsync(string path)
     {
         try
         {
@@ -361,7 +371,7 @@ public static class AudioTagLyricsReader
     }
 
     /// <summary>Extract embedded cover art from FLAC METADATA_BLOCK_PICTURE.</summary>
-    public static async Task<byte[]?> ReadFlacCoverAsync(string path)
+    public async Task<byte[]?> ReadFlacCoverAsync(string path)
     {
         try
         {
@@ -405,7 +415,7 @@ public static class AudioTagLyricsReader
 
     // ==================== MP3 ID3v2 (lyrics) ====================
 
-    private static async Task<string?> ReadMp3Id3v2Async(string path)
+    private async Task<string?> ReadMp3Id3v2Async(string path)
     {
         using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         var header = new byte[10];
@@ -446,7 +456,7 @@ public static class AudioTagLyricsReader
         };
     }
 
-    private static string? ScanLyricsV22(byte[] data, ref int pos)
+    private string? ScanLyricsV22(byte[] data, ref int pos)
     {
         while (pos + 6 <= data.Length)
         {
@@ -465,7 +475,7 @@ public static class AudioTagLyricsReader
         return null;
     }
 
-    private static string? ScanLyricsV23(byte[] data, ref int pos)
+    private string? ScanLyricsV23(byte[] data, ref int pos)
     {
         while (pos + 10 <= data.Length)
         {
@@ -484,7 +494,7 @@ public static class AudioTagLyricsReader
         return null;
     }
 
-    private static string? ScanLyricsV24(byte[] data, ref int pos)
+    private string? ScanLyricsV24(byte[] data, ref int pos)
     {
         while (pos + 10 <= data.Length)
         {
@@ -505,7 +515,7 @@ public static class AudioTagLyricsReader
 
     // ==================== MP3 ID3v2 Cover Scanners ====================
 
-    private static byte[]? ScanCoverV22(byte[] data, ref int pos)
+    private byte[]? ScanCoverV22(byte[] data, ref int pos)
     {
         while (pos + 6 <= data.Length)
         {
@@ -524,7 +534,7 @@ public static class AudioTagLyricsReader
         return null;
     }
 
-    private static byte[]? ScanCoverV23(byte[] data, ref int pos)
+    private byte[]? ScanCoverV23(byte[] data, ref int pos)
     {
         while (pos + 10 <= data.Length)
         {
@@ -543,7 +553,7 @@ public static class AudioTagLyricsReader
         return null;
     }
 
-    private static byte[]? ScanCoverV24(byte[] data, ref int pos)
+    private byte[]? ScanCoverV24(byte[] data, ref int pos)
     {
         while (pos + 10 <= data.Length)
         {
@@ -567,7 +577,7 @@ public static class AudioTagLyricsReader
     /// Layout: encoding(1) + mime_type(0-terminated) + picture_type(1) + description(0-terminated) + image_data
     /// For v2.2 PIC: encoding(1) + format("JPG"/"PNG" 3 bytes) + picture_type(1) + description(0-terminated) + image_data
     /// </summary>
-    private static byte[]? DecodeCoverBody(byte[] data, int start, int size)
+    private byte[]? DecodeCoverBody(byte[] data, int start, int size)
     {
         if (size < 10) return null;
         int pos = start;
@@ -612,7 +622,7 @@ public static class AudioTagLyricsReader
 
     // ==================== USLT Decoding ====================
 
-    private static string DecodeLyricsBody(byte[] data, int start, int size)
+    private string DecodeLyricsBody(byte[] data, int start, int size)
     {
         if (size < 5) return "";
         int encoding = data[start];
@@ -649,7 +659,7 @@ public static class AudioTagLyricsReader
         };
     }
 
-    private static string DecodeUtf16(byte[] bytes, bool skipBom)
+    private string DecodeUtf16(byte[] bytes, bool skipBom)
     {
         int offset = 0;
         if (skipBom && bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
@@ -662,7 +672,7 @@ public static class AudioTagLyricsReader
 
     // ==================== FLAC / OGG ====================
 
-    private static async Task<string?> ReadFlacVorbisAsync(string path)
+    private async Task<string?> ReadFlacVorbisAsync(string path)
     {
         using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         var magic = new byte[4];
@@ -697,7 +707,7 @@ public static class AudioTagLyricsReader
         return null;
     }
 
-    private static string? ParseVorbisLyrics(byte[] body)
+    private string? ParseVorbisLyrics(byte[] body)
     {
         if (body.Length < 8) return null;
         int pos = 0;
@@ -727,7 +737,7 @@ public static class AudioTagLyricsReader
     }
 
     /// <summary>Parse METADATA_BLOCK_PICTURE from Vorbis comments and extract image data.</summary>
-    private static byte[]? ParseVorbisCover(byte[] body)
+    private byte[]? ParseVorbisCover(byte[] body)
     {
         if (body.Length < 8) return null;
         int pos = 0;
@@ -762,7 +772,7 @@ public static class AudioTagLyricsReader
     }
 
     /// <summary>Parse FLAC picture block to extract image bytes.</summary>
-    private static byte[]? ParseFlacPictureBlock(byte[] data)
+    private byte[]? ParseFlacPictureBlock(byte[] data)
     {
         if (data.Length < 8) return null;
         int pos = 0;
@@ -797,7 +807,7 @@ public static class AudioTagLyricsReader
 
     // ==================== OGG Vorbis ====================
 
-    private static async Task<string?> ReadOggVorbisAsync(string path)
+    private async Task<string?> ReadOggVorbisAsync(string path)
     {
         using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         var buffer = new byte[64 * 1024];
@@ -826,17 +836,17 @@ public static class AudioTagLyricsReader
 
     // ==================== Utility ====================
 
-    private static int ReadInt32BE(byte[] data, int offset)
+    private int ReadInt32BE(byte[] data, int offset)
     {
         return (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3];
     }
 
-    private static int ReadInt32LE(byte[] data, int offset)
+    private int ReadInt32LE(byte[] data, int offset)
     {
         return data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24);
     }
 
-    private static int ReadSyncSafeInt32(byte[] data, int offset)
+    private int ReadSyncSafeInt32(byte[] data, int offset)
     {
         return (data[offset] & 0x7F) << 21
              | (data[offset + 1] & 0x7F) << 14
@@ -844,7 +854,7 @@ public static class AudioTagLyricsReader
              | (data[offset + 3] & 0x7F);
     }
 
-    private static async Task<bool> ReadExactAsync(Stream stream, byte[] buffer, int count)
+    private async Task<bool> ReadExactAsync(Stream stream, byte[] buffer, int count)
     {
         int read = 0;
         while (read < count)

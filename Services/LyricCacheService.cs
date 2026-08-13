@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.IO;
 using Microsoft.Data.Sqlite;
 
@@ -8,21 +8,32 @@ namespace TaskbarLyrics.Services;
 /// Two-tier lyrics cache: in-memory (ConcurrentDictionary) + persistent SQLite.
 /// 7-day TTL. Stores raw LRC text keyed by "title|artist" (normalized).
 /// </summary>
-public static class LyricCacheService
+/// <summary>本地歌词持久缓存(内存 + SQLite)。</summary>
+public interface ILyricCacheService
 {
-    private static readonly ConcurrentDictionary<string, CachedLyrics> _mem = new();
-    private static readonly string _dbPath;
-    private static bool _dbReady;
+    LyricCacheService.CachedLyrics TryGet(string title, string artist);
+    void Store(string title, string artist, string lrcText, string? source = null, double durationSec = 0);
+}
 
-    static LyricCacheService()
+public class LyricCacheService : ILyricCacheService
+{
+    private readonly ConcurrentDictionary<string, CachedLyrics> _mem = new();
+    private readonly string _dbPath;
+    private bool _dbReady;
+
+    public LyricCacheService(string? dbPath = null)
     {
-        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TaskbarLyrics");
-        Directory.CreateDirectory(dir);
-        _dbPath = Path.Combine(dir, "lyrics_cache.db");
+        if (string.IsNullOrEmpty(dbPath))
+        {
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TaskbarLyrics");
+            Directory.CreateDirectory(dir);
+            dbPath = Path.Combine(dir, "lyrics_cache.db");
+        }
+        _dbPath = dbPath;
         EnsureDb();
     }
 
-    private static void EnsureDb()
+    private void EnsureDb()
     {
         try
         {
@@ -55,7 +66,7 @@ public static class LyricCacheService
     public readonly record struct CachedLyrics(string? Text, double DurationSec);
 
     /// <summary>Try to get cached lyrics (memory → SQLite). Returns null if not found or expired.</summary>
-    public static CachedLyrics TryGet(string title, string artist)
+    public CachedLyrics TryGet(string title, string artist)
     {
         var key = LyricsManager.Normalize($"{title}|{artist}");
         if (key.Length == 0) return default;
@@ -90,7 +101,7 @@ public static class LyricCacheService
     }
 
     /// <summary>Store lyrics in both memory and SQLite. TTL varies by source.</summary>
-    public static void Store(string title, string artist, string lrcText, string? source = null, double durationSec = 0)
+    public void Store(string title, string artist, string lrcText, string? source = null, double durationSec = 0)
     {
         var key = LyricsManager.Normalize($"{title}|{artist}");
         if (key.Length == 0 || string.IsNullOrWhiteSpace(lrcText)) return;

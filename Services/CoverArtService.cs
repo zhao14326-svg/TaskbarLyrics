@@ -1,24 +1,39 @@
-using System.IO;
+﻿using System.IO;
 using System.Net.Http;
 using System.Text.Json;
 
 namespace TaskbarLyrics.Services;
 
+/// <summary>封面获取(多源并行 + 打分择优)。</summary>
+public interface ICoverArtService
+{
+    /// <summary>并行多源 + 打分择优获取封面：SMTC缩略图 / 本地 / 在线同时启动。</summary>
+    Task<byte[]?> GetCoverAsync(MediaTrack track, IReadOnlyList<string> audioFiles, int strategy = 0);
+
+    /// <summary>转 data URI（前端封面显示用）。</summary>
+    string? ToDataUri(byte[]? bytes);
+}
+
 /// <summary>
 /// Album cover art provider with configurable source strategy.
 /// 0=online-first, 1=local-first, 2=online-only, 3=local-only
 /// </summary>
-public static class CoverArtService
+public class CoverArtService : ICoverArtService
 {
-    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(3) };
-    private static readonly Dictionary<string, byte[]> _cache = new();
-    private static readonly Queue<string> _accessOrder = new();
+    private readonly INeteaseApi _netease;
+    private readonly IAudioTagLyricsReader _tagReader;
+    private readonly HttpClient _http;
+    private readonly Dictionary<string, byte[]> _cache = new();
+    private readonly Queue<string> _accessOrder = new();
     private const int MaxCache = 50;
     private static readonly string[] ImageExts = [".jpg", ".jpeg", ".png", ".webp", ".bmp"];
     private static readonly string[] CoverNames = ["cover", "album", "folder", "front", "artwork"];
 
-    static CoverArtService()
+    public CoverArtService(INeteaseApi netease, IAudioTagLyricsReader tagReader)
     {
+        _netease = netease;
+        _tagReader = tagReader;
+        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 TaskbarLyrics/2.0");
     }
 
@@ -26,7 +41,7 @@ public static class CoverArtService
     /// 并行多源 + 打分择优获取封面：SMTC缩略图 / 本地 / 在线同时启动，
     /// 按分值(可靠性+策略优先级)从高到低取首个有效结果 —— 高分来源成功即返回，不等待慢的低分来源。
     /// </summary>
-    public static async Task<byte[]?> GetCoverAsync(MediaTrack track, IReadOnlyList<string> audioFiles, int strategy = 0)
+    public async Task<byte[]?> GetCoverAsync(MediaTrack track, IReadOnlyList<string> audioFiles, int strategy = 0)
     {
         var key = LyricsManager.Normalize($"cover|{track.Title}|{track.Artist}");
         if (_cache.TryGetValue(key, out var c)) return c;
@@ -68,7 +83,7 @@ public static class CoverArtService
         return null;
     }
 
-    public static string? ToDataUri(byte[]? bytes)
+    public string? ToDataUri(byte[]? bytes)
     {
         if (bytes == null || bytes.Length == 0) return null;
         var mime = SniffMime(bytes);
@@ -77,10 +92,10 @@ public static class CoverArtService
 
     // ==================== 来源实现 ====================
 
-    private static async Task<byte[]?> LocalOnly(MediaTrack track, IReadOnlyList<string> audioFiles)
+    private async Task<byte[]?> LocalOnly(MediaTrack track, IReadOnlyList<string> audioFiles)
     {
         if (audioFiles.Count == 0) return null;
-        var bestFile = LyricsManager.FindBestAudioFile(track, audioFiles);
+        var bestFile = LyricsManager.FindBestAudioFile(track, audioFiles, _tagReader);
         if (bestFile == null) return null;
 
         // 1. Same-directory image files
@@ -121,22 +136,22 @@ public static class CoverArtService
         return null;
     }
 
-    private static async Task<byte[]?> ReadCoverFromFileAsync(string filePath)
+    private async Task<byte[]?> ReadCoverFromFileAsync(string filePath)
     {
         var ext = Path.GetExtension(filePath).ToLowerInvariant();
         try
         {
             return ext switch
             {
-                ".mp3" => await AudioTagLyricsReader.ReadMp3CoverAsync(filePath),
-                ".flac" => await AudioTagLyricsReader.ReadFlacCoverAsync(filePath),
+                ".mp3" => await _tagReader.ReadMp3CoverAsync(filePath),
+                ".flac" => await _tagReader.ReadFlacCoverAsync(filePath),
                 _ => null
             };
         }
         catch { return null; }
     }
 
-    private static string SniffMime(byte[] bytes)
+    private string SniffMime(byte[] bytes)
     {
         if (bytes.Length < 4) return "image/jpeg";
         if (bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) return "image/png";
@@ -148,7 +163,7 @@ public static class CoverArtService
         return "image/jpeg";
     }
 
-    private static void PutCache(string key, byte[] data)
+    private void PutCache(string key, byte[] data)
     {
         if (_cache.ContainsKey(key)) { _cache[key] = data; return; }
         while (_cache.Count >= MaxCache && _accessOrder.Count > 0)
@@ -158,9 +173,9 @@ public static class CoverArtService
     }
 
     /// <summary>Fetch album cover from NetEase Cloud Music API (with scoring).</summary>
-    private static async Task<byte[]?> FetchCoverFromNeteaseAsync(string title, string artist)
+    private async Task<byte[]?> FetchCoverFromNeteaseAsync(string title, string artist)
     {
-        var songs = await NeteaseApi.SearchSongsAsync(title, artist, 5);
+        var songs = await _netease.SearchSongsAsync(title, artist, 5);
         if (songs.Count == 0) return null;
 
         var titleNorm = LyricsManager.Normalize(title);

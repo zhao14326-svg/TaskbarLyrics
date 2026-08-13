@@ -1,15 +1,48 @@
-using System.Net.Http;
+﻿using System.Net.Http;
 using System.Text.Json;
 
 namespace TaskbarLyrics.Services;
+
+/// <summary>曲目检测（窗口标题扫描 + 播放位置校准）。</summary>
+public interface ITrackDetector
+{
+    /// <summary>快速检测当前曲目。</summary>
+    MediaTrack? Detect();
+
+    /// <summary>归零：重置检测与校准状态。</summary>
+    void Reset();
+
+    /// <summary>设置暂停状态。</summary>
+    void SetPaused(bool paused);
+
+    /// <summary>用真实播放进度建立本地时钟基线。</summary>
+    void CalibrateStart(TimeSpan position, TimeSpan duration);
+
+    /// <summary>无条件对齐到给定位置（seek/拖进度条）。</summary>
+    void AlignTo(TimeSpan position);
+
+    /// <summary>校准：播放中信任本地时钟，仅对跳变响应。</summary>
+    void Calibrate(TimeSpan position, bool isPlaying);
+
+    /// <summary>当前播放位置。</summary>
+    TimeSpan GetPosition();
+
+    /// <summary>当前曲目总时长（来自 SMTC）。</summary>
+    TimeSpan Duration { get; }
+
+    bool IsNewSong { get; }
+    string CurrentId { get; }
+    MediaTrack? Current { get; }
+}
 
 /// <summary>
 /// Fast/slow separated track detector.
 /// Window scan (<1ms) for instant detection, SMTC for position calibration.
 /// Holds current track for 5s when detection temporarily fails.
 /// </summary>
-public class TrackDetector
+public class TrackDetector : ITrackDetector
 {
+    private readonly ISmtcMediaService _smtc;
     private MediaTrack? _currentTrack;
     private DateTime _trackStartTime;
     private DateTime _lastDetectedAt = DateTime.MinValue; // 最后成功解析到曲目的时间（检测失败宽限基准）
@@ -17,6 +50,11 @@ public class TrackDetector
     private bool _isPaused;
     private TimeSpan _duration;
     private string _lastId = "";
+
+    public TrackDetector(ISmtcMediaService smtc)
+    {
+        _smtc = smtc;
+    }
 
     // 校准状态
     private TimeSpan _lastCalibPos;
@@ -31,7 +69,7 @@ public class TrackDetector
     /// <summary>Detect track fast. Window scan first, skip slow sources.</summary>
     public MediaTrack? Detect()
     {
-        var windowTrack = SmtcMediaService.ScanWindowTitles();
+        var windowTrack = _smtc.ScanWindowTitles();
 
         if (windowTrack != null)
         {

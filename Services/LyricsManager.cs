@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Globalization;
 using System.IO;
 using System.Text.Json;
@@ -7,6 +7,46 @@ using TaskbarLyrics.Models;
 
 namespace TaskbarLyrics.Services;
 
+/// <summary>歌词获取管理（缓存/并发/两阶段渐进加载）。</summary>
+public interface ILyricsManager
+{
+    /// <summary>音乐目录（用于查找本地内嵌歌词/封面）。</summary>
+    string[] MusicFolders { get; set; }
+
+    /// <summary>是否启用在线歌词获取。</summary>
+    bool EnableOnline { get; set; }
+
+    /// <summary>播放器缓存共享。</summary>
+    IPlayerLyricsCache PlayerCache { get; set; }
+
+    /// <summary>已索引的音频文件列表（供封面复用）。</summary>
+    IReadOnlyList<string> AudioFiles { get; }
+
+    /// <summary>当前是否显示波形动画（无歌词时）。</summary>
+    bool IsInstrumental { get; set; }
+
+    /// <summary>当前歌词。</summary>
+    LyricsData? Current { get; set; }
+
+    /// <summary>根据曲目信息获取歌词（带缓存 + 两阶段渐进加载）。</summary>
+    Task<LyricsData?> GetLyricsAsync(MediaTrack track);
+
+    /// <summary>当前句歌词文本。</summary>
+    string? GetCurrentLine(TimeSpan position);
+
+    /// <summary>下一句歌词文本。</summary>
+    string? GetNextLine(TimeSpan position);
+
+    /// <summary>当前句播放进度（0-1）。</summary>
+    double GetLineProgress(TimeSpan position);
+
+    /// <summary>重建音频索引（设置变更后调用）。</summary>
+    void ResetIndex();
+
+    /// <summary>后台预热索引。</summary>
+    void WarmUp();
+}
+
 /// <summary>
 /// 歌词管理：按优先级获取歌词
 /// 1. 本地 .lrc 文件（按歌名在音乐库中匹配）
@@ -14,15 +54,28 @@ namespace TaskbarLyrics.Services;
 /// 3. 播放器缓存目录（QQ/网易云/酷狗共享缓存）
 /// 4. 在线歌词（lrclib.net）
 /// </summary>
-public partial class LyricsManager
+public partial class LyricsManager : ILyricsManager
 {
     private static readonly string[] AudioExtensions = [".mp3", ".flac", ".m4a", ".ogg", ".wma", ".ape", ".wav"];
     public static readonly string[] DefaultMusicFolders;
 
-    private readonly OnlineLyricsService _online = new();
+    private readonly IOnlineLyricsService _onlineService;
+    private readonly IPlayerLocalApiService _localApi;
+    private readonly ILyricCacheService _cache;
+    private readonly IAudioTagLyricsReader _tagReader;
     private readonly List<string> _audioFiles = new();
     private readonly object _indexLock = new();
     private bool _indexReady;
+
+    public LyricsManager(IOnlineLyricsService onlineLyrics, IPlayerLyricsCache playerCache,
+        IPlayerLocalApiService localApi, ILyricCacheService cache, IAudioTagLyricsReader tagReader)
+    {
+        _onlineService = onlineLyrics;
+        PlayerCache = playerCache;
+        _localApi = localApi;
+        _cache = cache;
+        _tagReader = tagReader;
+    }
 
     // 并发与缓存状态
     private string _currentKey = "";          // 最近一次请求的曲目
@@ -73,7 +126,7 @@ public partial class LyricsManager
     public bool EnableOnline { get; set; } = true;
 
     /// <summary>播放器缓存共享</summary>
-    public PlayerLyricsCache PlayerCache { get; set; } = new();
+    public IPlayerLyricsCache PlayerCache { get; set; } = null!;
 
     /// <summary>已索引的音频文件列表（供 CoverArtService 复用）</summary>
     public IReadOnlyList<string> AudioFiles => _audioFiles;
@@ -171,7 +224,7 @@ public partial class LyricsManager
     private async Task<LyricsData?> FetchInternalAsync(MediaTrack track, string key)
     {
         // 1. 持久化缓存（SQLite → 内存，7 天 TTL）
-        var cachedEntry = LyricCacheService.TryGet(track.Title, track.Artist);
+        var cachedEntry = _cache.TryGet(track.Title, track.Artist);
         if (!string.IsNullOrEmpty(cachedEntry.Text))
         {
             // 缓存时长为 0 时(SMTC 不可靠环境)从本地音频文件读取，保证纯文本估算有效
@@ -191,7 +244,7 @@ public partial class LyricsManager
         if (fast is { IsEmpty: false })
         {
             fast = await ReestimatePlainAsync(fast, track);
-            LyricCacheService.Store(track.Title, track.Artist, fast.GetStoreText(), fast.Source, await ResolveDurationSecAsync(track));
+            _cache.Store(track.Title, track.Artist, fast.GetStoreText(), fast.Source, await ResolveDurationSecAsync(track));
             Publish(key, fast);
             // 3. 在线“升级”后台继续（可带来翻译/更优同步歌词）；近期已联网的曲目跳过
             if (!_onlineFetched.TryGetValue(key, out var ft) ||
@@ -205,7 +258,7 @@ public partial class LyricsManager
         if (online is { IsEmpty: false })
         {
             online = await ReestimatePlainAsync(online, track);
-            LyricCacheService.Store(track.Title, track.Artist, online.GetStoreText(), online.Source, await ResolveDurationSecAsync(track));
+            _cache.Store(track.Title, track.Artist, online.GetStoreText(), online.Source, await ResolveDurationSecAsync(track));
             _onlineFetched[key] = DateTime.UtcNow;
             Publish(key, online);
             return online;
@@ -242,7 +295,7 @@ public partial class LyricsManager
     /// <summary>在线来源（慢，各请求自带超时）。</summary>
     private Task<LyricsData?> FetchFromOnlineAsync(MediaTrack track) =>
         EnableOnline
-            ? _online.FetchAsync(track.Title, track.Artist, track.Album, track.Duration.TotalSeconds)
+            ? _onlineService.FetchAsync(track.Title, track.Artist, track.Album, track.Duration.TotalSeconds)
             : Task.FromResult<LyricsData?>(null);
 
     /// <summary>并行等待多个来源，谁先返回有效结果用谁。</summary>
@@ -267,7 +320,7 @@ public partial class LyricsManager
             var online = await FetchFromOnlineAsync(track);
             if (online is { IsEmpty: false })
             {
-                LyricCacheService.Store(track.Title, track.Artist, online.GetStoreText(), online.Source, track.Duration.TotalSeconds);
+                _cache.Store(track.Title, track.Artist, online.GetStoreText(), online.Source, track.Duration.TotalSeconds);
                 _onlineFetched[key] = DateTime.UtcNow;
                 Publish(key, online);
             }
@@ -316,7 +369,7 @@ public partial class LyricsManager
     }
 
     /// <summary>Find the best-matching audio file for a track. Checks filename first, then ID3 metadata.</summary>
-    internal static string? FindBestAudioFile(MediaTrack track, IReadOnlyList<string> audioFiles)
+    internal static string? FindBestAudioFile(MediaTrack track, IReadOnlyList<string> audioFiles, IAudioTagLyricsReader tagReader)
     {
         if (audioFiles.Count == 0) return null;
         var titleNorm = Normalize(track.Title);
@@ -344,7 +397,7 @@ public partial class LyricsManager
                 metadataReads++;
                 try
                 {
-                    var meta = AudioTagLyricsReader.ReadMetaCached(file);
+                    var meta = tagReader.ReadMetaCached(file);
                     var metaTitle = Normalize(meta.Title);
                     var metaArtist = Normalize(meta.Artist);
                     if (metaTitle.Length > 0 && metaTitle.Contains(titleNorm, StringComparison.Ordinal))
@@ -364,11 +417,11 @@ public partial class LyricsManager
 
     // ==================== Local API lyrics (NetEase, instant) ====================
 
-    private static async Task<LyricsData?> TryGetFromLocalApiAsync(MediaTrack track)
+    private async Task<LyricsData?> TryGetFromLocalApiAsync(MediaTrack track)
     {
         try
         {
-            var raw = await PlayerLocalApiService.GetLyricsAsync();
+            var raw = await _localApi.GetLyricsAsync();
             if (raw != null && LrcParser.LooksLikeLrc(raw))
             {
                 var data = LrcParser.Parse(raw);
@@ -395,7 +448,7 @@ public partial class LyricsManager
         if (_audioFiles.Count == 0) return null;
 
         // 主候选：文件名 + ID3 元数据加权（元数据读取成本高，仅对首选执行）
-        var best = FindBestAudioFile(track, _audioFiles);
+        var best = FindBestAudioFile(track, _audioFiles, _tagReader);
 
         // 备用候选：按文件名打分取前 8，避免全量二次扫描
         var candidates = new List<string>();
@@ -433,7 +486,7 @@ public partial class LyricsManager
             }
 
             // 再尝试内嵌歌词
-            var embedded = await AudioTagLyricsReader.ReadFromFileAsync(path);
+            var embedded = await _tagReader.ReadFromFileAsync(path);
             if (embedded is { IsEmpty: false }) return embedded;
         }
 
@@ -444,9 +497,9 @@ public partial class LyricsManager
     private async Task<double> ResolveDurationSecAsync(MediaTrack track, string? knownAudioFile = null)
     {
         if (track.Duration.TotalSeconds > 0) return track.Duration.TotalSeconds;
-        var f = knownAudioFile ?? (_indexReady && _audioFiles.Count > 0 ? FindBestAudioFile(track, _audioFiles) : null);
+        var f = knownAudioFile ?? (_indexReady && _audioFiles.Count > 0 ? FindBestAudioFile(track, _audioFiles, _tagReader) : null);
         if (f == null) return 0;
-        try { return await AudioTagLyricsReader.ReadDurationAsync(f); }
+        try { return await _tagReader.ReadDurationAsync(f); }
         catch { return 0; }
     }
 

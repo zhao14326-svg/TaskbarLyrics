@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
@@ -15,12 +15,22 @@ public record MediaTrack(
 /// 双路检测 SMTC + 通用窗口标题扫描。
 /// 窗口标题扫描覆盖所有包含 " - " 分隔符的进程（兼容网易云、QQ音乐、酷狗等）。
 /// </summary>
-public static class SmtcMediaService
+/// <summary>SMTC 媒体信息 + 窗口标题扫描。</summary>
+public interface ISmtcMediaService
 {
-    private static GlobalSystemMediaTransportControlsSessionManager? _manager;
-    private static bool _smtcFailed;
+    Task<MediaTrack?> GetCurrentTrackAsync();
+    Task<MediaTrack?> GetFromSmtcOnlyAsync();
+    MediaTrack? ScanWindowTitles();
+    void WarmUp();
+    SmtcMediaService.SmtcSnapshot? PollSnapshot();
+}
 
-    private static async Task<GlobalSystemMediaTransportControlsSessionManager?> GetManagerAsync()
+public class SmtcMediaService : ISmtcMediaService
+{
+    private GlobalSystemMediaTransportControlsSessionManager? _manager;
+    private bool _smtcFailed;
+
+    private async Task<GlobalSystemMediaTransportControlsSessionManager?> GetManagerAsync()
     {
         if (_smtcFailed) return null;
         if (_manager != null) return _manager;
@@ -30,26 +40,26 @@ public static class SmtcMediaService
     }
 
     /// <summary>SMTC first, window scan fallback.</summary>
-    public static async Task<MediaTrack?> GetCurrentTrackAsync()
+    public async Task<MediaTrack?> GetCurrentTrackAsync()
     {
         var track = await GetFromSmtcAsync();
         return track ?? ScanWindowTitles();
     }
 
     /// <summary>SMTC only (no fallback).</summary>
-    public static async Task<MediaTrack?> GetFromSmtcOnlyAsync() => await GetFromSmtcAsync();
+    public async Task<MediaTrack?> GetFromSmtcOnlyAsync() => await GetFromSmtcAsync();
 
-    private static MediaTrack? _scanCache;
-    private static DateTime _scanCacheTime = DateTime.MinValue;
-    private static readonly object _scanLock = new();
-    private static volatile bool _scanRunning;
+    private MediaTrack? _scanCache;
+    private DateTime _scanCacheTime = DateTime.MinValue;
+    private readonly object _scanLock = new();
+    private volatile bool _scanRunning;
 
     /// <summary>
     /// Window title scan（500ms 缓存 + 后台执行：UI 线程永不阻塞）。
     /// 标题读取全部走 SendMessageTimeout(150ms)：即使某个窗口消息泵卡住，
     /// 单个窗口最多等待 150ms 且发生在后台线程，不影响 UI 线程与 250ms 定时器。
     /// </summary>
-    public static MediaTrack? ScanWindowTitles()
+    public MediaTrack? ScanWindowTitles()
     {
         lock (_scanLock)
         {
@@ -71,7 +81,7 @@ public static class SmtcMediaService
     }
 
     /// <summary>预热 SMTC 会话管理器（后台），使 PollSnapshot 能立即读到真实播放进度。</summary>
-    public static void WarmUp() { _ = GetManagerAsync(); }
+    public void WarmUp() { _ = GetManagerAsync(); }
 
     /// <summary>SMTC 实时播放快照（同步读取，无等待，用于每帧校准）。</summary>
     public sealed record SmtcSnapshot(string AppId, TimeSpan Position, TimeSpan EndTime, string Status);
@@ -81,7 +91,7 @@ public static class SmtcMediaService
     /// 遍历 GetSessions() 优先选“活跃”会话（position>0 或 Playing），
     /// 避免 GetCurrentSession() 返回陈旧/空会话导致校准失效。无活跃会话时回退当前会话。
     /// </summary>
-    public static SmtcSnapshot? PollSnapshot()
+    public SmtcSnapshot? PollSnapshot()
     {
         if (_smtcFailed || _manager == null) return null;
         try
@@ -120,7 +130,7 @@ public static class SmtcMediaService
 
     // ==================== SMTC ====================
 
-    private static async Task<MediaTrack?> GetFromSmtcAsync()
+    private async Task<MediaTrack?> GetFromSmtcAsync()
     {
         try
         {
@@ -148,7 +158,7 @@ public static class SmtcMediaService
     // ==================== 通用窗口标题扫描 ====================
 
     /// <summary>扫描所有进程，从窗口标题中识别 "歌曲 - 歌手" 格式。</summary>
-    private static MediaTrack? ScanAllWindows()
+    private MediaTrack? ScanAllWindows()
     {
         // 已知的音乐播放器进程名（不含 .exe）
         var knownPlayers = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -221,7 +231,7 @@ public static class SmtcMediaService
     }
 
     /// <summary>从窗口标题解析 "歌曲名 - 歌手名" 格式（通用）。</summary>
-    private static (string? song, string? artist) ParseTitle(string title)
+    private (string? song, string? artist) ParseTitle(string title)
     {
         // 匹配 "A - B" 格式（至少 2 个字符的歌名）
         var m = Regex.Match(title, @"^(.{2,}?)\s*[-–—]\s*(.{2,}?)(?:\s*[-–—]\s*.+)?$");
@@ -243,7 +253,7 @@ public static class SmtcMediaService
     }
 
     // ==================== 封面 ====================
-    private static async Task<byte[]?> ReadThumbnailAsync(IRandomAccessStreamReference reference)
+    private async Task<byte[]?> ReadThumbnailAsync(IRandomAccessStreamReference reference)
     {
         try
         {
