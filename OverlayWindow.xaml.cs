@@ -14,9 +14,9 @@ namespace TaskbarLyrics;
 public partial class OverlayWindow : Window
 {
     private readonly AppSettings _settings;
-    private readonly ILyricsManager _lyrics;
-    private readonly ISmtcMediaService _smtc;
-    private readonly ICoverArtService _coverArt;
+    private readonly ILyricsProvider _lyrics;
+    private readonly IMediaService _smtc;
+    private readonly ICoverArtProvider _coverArt;
     private readonly IPlayerLocalApiService _localApi;
     private readonly Random _rng = new();
     // 后台线程定时器替代 DispatcherTimer：DispatcherTimer 依赖低优先级 WM_TIMER，
@@ -80,8 +80,8 @@ public partial class OverlayWindow : Window
     // Auto-size
     private double _reportedContentW, _reportedContentH;
 
-    public OverlayWindow(AppSettings settings, ILyricsManager lyrics,
-        ISmtcMediaService smtc, ICoverArtService coverArt, IPlayerLocalApiService localApi)
+    public OverlayWindow(AppSettings settings, ILyricsProvider lyrics,
+        IMediaService smtc, ICoverArtProvider coverArt, IPlayerLocalApiService localApi)
     {
         InitializeComponent();
         _settings = settings;

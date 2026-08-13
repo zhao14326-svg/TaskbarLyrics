@@ -15,17 +15,8 @@ public record MediaTrack(
 /// 双路检测 SMTC + 通用窗口标题扫描。
 /// 窗口标题扫描覆盖所有包含 " - " 分隔符的进程（兼容网易云、QQ音乐、酷狗等）。
 /// </summary>
-/// <summary>SMTC 媒体信息 + 窗口标题扫描。</summary>
-public interface ISmtcMediaService
-{
-    Task<MediaTrack?> GetCurrentTrackAsync();
-    Task<MediaTrack?> GetFromSmtcOnlyAsync();
-    MediaTrack? ScanWindowTitles();
-    void WarmUp();
-    SmtcMediaService.SmtcSnapshot? PollSnapshot();
-}
 
-public class SmtcMediaService : ISmtcMediaService
+public class SmtcMediaService : IMediaService
 {
     private GlobalSystemMediaTransportControlsSessionManager? _manager;
     private bool _smtcFailed;

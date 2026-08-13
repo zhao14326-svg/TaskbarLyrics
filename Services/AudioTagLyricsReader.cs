@@ -8,15 +8,6 @@ namespace TaskbarLyrics.Services;
 /// 从音频文件中读取内嵌歌词、封面和基本元数据（不依赖外部库）。
 /// 支持：MP3 的 ID3v2.2/2.3/2.4 USLT 帧 + APIC/PIC 封面、FLAC 的 Vorbis 注释 LYRICS 标签 + METADATA_BLOCK_PICTURE。
 /// </summary>
-/// <summary>音频标签读取(内嵌歌词/封面/时长)。</summary>
-public interface IAudioTagLyricsReader
-{
-    (string Artist, string Title) ReadMetaCached(string filePath);
-    Task<double> ReadDurationAsync(string filePath);
-    Task<LyricsData?> ReadFromFileAsync(string filePath);
-    Task<byte[]?> ReadMp3CoverAsync(string path);
-    Task<byte[]?> ReadFlacCoverAsync(string path);
-}
 
 public class AudioTagLyricsReader : IAudioTagLyricsReader
 {

@@ -8,9 +8,9 @@ namespace TaskbarLyrics;
 public partial class MainWindow : Window
 {
     private readonly System.Windows.Threading.DispatcherTimer _timer;
-    private readonly ISmtcMediaService _smtc;
+    private readonly IMediaService _smtc;
 
-    public MainWindow(ISmtcMediaService smtc)
+    public MainWindow(IMediaService smtc)
     {
         _smtc = smtc;
         InitializeComponent();

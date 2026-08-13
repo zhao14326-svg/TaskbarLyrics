@@ -24,7 +24,7 @@ public partial class App : System.Windows.Application
     public static IServiceProvider Services { get; private set; } = null!;
 
     /// <summary>歌词管理器（从 DI 容器解析）。</summary>
-    public static ILyricsManager Lyrics => Services.GetRequiredService<ILyricsManager>();
+    public static ILyricsProvider Lyrics => Services.GetRequiredService<ILyricsProvider>();
 
     public static OverlayWindow Overlay { get; private set; } = null!;
 
@@ -74,14 +74,14 @@ public partial class App : System.Windows.Application
         var sc = new ServiceCollection();
         sc.AddSingleton<INeteaseApi, NeteaseApi>();
         sc.AddSingleton<IAudioTagLyricsReader, AudioTagLyricsReader>();
-        sc.AddSingleton<ILyricCacheService, LyricCacheService>();
+        sc.AddSingleton<ILyricsCache, LyricCacheService>();
         sc.AddSingleton<IPlayerLocalApiService, PlayerLocalApiService>();
-        sc.AddSingleton<ICoverArtService, CoverArtService>();
+        sc.AddSingleton<ICoverArtProvider, CoverArtService>();
         sc.AddSingleton<IPlayerLyricsCache, PlayerLyricsCache>();
         sc.AddSingleton<IOnlineLyricsService, OnlineLyricsService>();
-        sc.AddSingleton<ISmtcMediaService, SmtcMediaService>();
+        sc.AddSingleton<IMediaService, SmtcMediaService>();
         sc.AddSingleton<ITrackDetector, TrackDetector>();
-        sc.AddSingleton<ILyricsManager, LyricsManager>();
+        sc.AddSingleton<ILyricsProvider, LyricsManager>();
         Services = sc.BuildServiceProvider();
 
         // 应用用户设置到歌词管理器
@@ -99,12 +99,12 @@ public partial class App : System.Windows.Application
         lyrics.WarmUp();
 
         Overlay = new OverlayWindow(Settings, lyrics,
-            Services.GetRequiredService<ISmtcMediaService>(),
-            Services.GetRequiredService<ICoverArtService>(),
+            Services.GetRequiredService<IMediaService>(),
+            Services.GetRequiredService<ICoverArtProvider>(),
             Services.GetRequiredService<IPlayerLocalApiService>());
         Overlay.Show();
 
-        _mainWindow = new MainWindow(Services.GetRequiredService<ISmtcMediaService>());
+        _mainWindow = new MainWindow(Services.GetRequiredService<IMediaService>());
         _mainWindow.Closing += (_, _) => _mainWindow.Hide();
 
         SetupTray();
@@ -148,7 +148,7 @@ public partial class App : System.Windows.Application
         // Window may have been closed — WPF can't reopen closed windows
         if (_mainWindow == null || !_mainWindow.IsLoaded)
         {
-            _mainWindow = new MainWindow(Services.GetRequiredService<ISmtcMediaService>());
+            _mainWindow = new MainWindow(Services.GetRequiredService<IMediaService>());
             _mainWindow.Closing += (_, e) => { e.Cancel = true; _mainWindow.Hide(); };
         }
         _mainWindow.Show();

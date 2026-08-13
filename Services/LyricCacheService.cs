@@ -8,14 +8,8 @@ namespace TaskbarLyrics.Services;
 /// Two-tier lyrics cache: in-memory (ConcurrentDictionary) + persistent SQLite.
 /// 7-day TTL. Stores raw LRC text keyed by "title|artist" (normalized).
 /// </summary>
-/// <summary>本地歌词持久缓存(内存 + SQLite)。</summary>
-public interface ILyricCacheService
-{
-    LyricCacheService.CachedLyrics TryGet(string title, string artist);
-    void Store(string title, string artist, string lrcText, string? source = null, double durationSec = 0);
-}
 
-public class LyricCacheService : ILyricCacheService
+public class LyricCacheService : ILyricsCache
 {
     private readonly ConcurrentDictionary<string, CachedLyrics> _mem = new();
     private readonly string _dbPath;
@@ -61,9 +55,6 @@ public class LyricCacheService : ILyricCacheService
         }
         catch { _dbReady = false; }
     }
-
-    /// <summary>缓存条目：歌词原文 + 歌曲总时长（用于纯文本歌词估算，未知为 0）。</summary>
-    public readonly record struct CachedLyrics(string? Text, double DurationSec);
 
     /// <summary>Try to get cached lyrics (memory → SQLite). Returns null if not found or expired.</summary>
     public CachedLyrics TryGet(string title, string artist)

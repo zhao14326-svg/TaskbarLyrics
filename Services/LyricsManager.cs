@@ -6,47 +6,6 @@ using System.Text.RegularExpressions;
 using TaskbarLyrics.Models;
 
 namespace TaskbarLyrics.Services;
-
-/// <summary>歌词获取管理（缓存/并发/两阶段渐进加载）。</summary>
-public interface ILyricsManager
-{
-    /// <summary>音乐目录（用于查找本地内嵌歌词/封面）。</summary>
-    string[] MusicFolders { get; set; }
-
-    /// <summary>是否启用在线歌词获取。</summary>
-    bool EnableOnline { get; set; }
-
-    /// <summary>播放器缓存共享。</summary>
-    IPlayerLyricsCache PlayerCache { get; set; }
-
-    /// <summary>已索引的音频文件列表（供封面复用）。</summary>
-    IReadOnlyList<string> AudioFiles { get; }
-
-    /// <summary>当前是否显示波形动画（无歌词时）。</summary>
-    bool IsInstrumental { get; set; }
-
-    /// <summary>当前歌词。</summary>
-    LyricsData? Current { get; set; }
-
-    /// <summary>根据曲目信息获取歌词（带缓存 + 两阶段渐进加载）。</summary>
-    Task<LyricsData?> GetLyricsAsync(MediaTrack track);
-
-    /// <summary>当前句歌词文本。</summary>
-    string? GetCurrentLine(TimeSpan position);
-
-    /// <summary>下一句歌词文本。</summary>
-    string? GetNextLine(TimeSpan position);
-
-    /// <summary>当前句播放进度（0-1）。</summary>
-    double GetLineProgress(TimeSpan position);
-
-    /// <summary>重建音频索引（设置变更后调用）。</summary>
-    void ResetIndex();
-
-    /// <summary>后台预热索引。</summary>
-    void WarmUp();
-}
-
 /// <summary>
 /// 歌词管理：按优先级获取歌词
 /// 1. 本地 .lrc 文件（按歌名在音乐库中匹配）
@@ -54,21 +13,21 @@ public interface ILyricsManager
 /// 3. 播放器缓存目录（QQ/网易云/酷狗共享缓存）
 /// 4. 在线歌词（lrclib.net）
 /// </summary>
-public partial class LyricsManager : ILyricsManager
+public partial class LyricsManager : ILyricsProvider
 {
     private static readonly string[] AudioExtensions = [".mp3", ".flac", ".m4a", ".ogg", ".wma", ".ape", ".wav"];
     public static readonly string[] DefaultMusicFolders;
 
     private readonly IOnlineLyricsService _onlineService;
     private readonly IPlayerLocalApiService _localApi;
-    private readonly ILyricCacheService _cache;
+    private readonly ILyricsCache _cache;
     private readonly IAudioTagLyricsReader _tagReader;
     private readonly List<string> _audioFiles = new();
     private readonly object _indexLock = new();
     private bool _indexReady;
 
     public LyricsManager(IOnlineLyricsService onlineLyrics, IPlayerLyricsCache playerCache,
-        IPlayerLocalApiService localApi, ILyricCacheService cache, IAudioTagLyricsReader tagReader)
+        IPlayerLocalApiService localApi, ILyricsCache cache, IAudioTagLyricsReader tagReader)
     {
         _onlineService = onlineLyrics;
         PlayerCache = playerCache;
