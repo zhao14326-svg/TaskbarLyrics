@@ -2,6 +2,7 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
 using TaskbarLyrics.Helpers;
@@ -72,6 +73,7 @@ public partial class App : System.Windows.Application
 
         // 配置依赖注入容器（单例：全部服务共享一份）
         var sc = new ServiceCollection();
+        sc.AddLogging(b => b.AddDebug());
         sc.AddSingleton<TrackNormalizer>();
         sc.AddSingleton<WindowTitleParser>();
         sc.AddSingleton<SmtcResolver>();

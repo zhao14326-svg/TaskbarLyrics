@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 
 namespace TaskbarLyrics.Services;
 
@@ -14,6 +15,7 @@ public class TrackDetector : ITrackDetector
     private readonly SmtcResolver _smtc;
     private readonly LocalApiResolver _localApi;
     private readonly TrackNormalizer _normalizer;
+    private readonly ILogger<TrackDetector> _logger;
 
     // 常见播放器进程名（用于窗口关闭后台播放时的进程存活检测）
     private static readonly string[] KnownPlayerProcesses =
@@ -31,12 +33,14 @@ public class TrackDetector : ITrackDetector
     private TimeSpan _duration;
     private string _lastId = "";
 
-    public TrackDetector(WindowTitleParser titleParser, SmtcResolver smtc, LocalApiResolver localApi, TrackNormalizer normalizer)
+    public TrackDetector(WindowTitleParser titleParser, SmtcResolver smtc, LocalApiResolver localApi,
+        TrackNormalizer normalizer, ILogger<TrackDetector> logger)
     {
         _titleParser = titleParser;
         _smtc = smtc;
         _localApi = localApi;
         _normalizer = normalizer;
+        _logger = logger;
     }
 
     // 校准状态
@@ -104,17 +108,18 @@ public class TrackDetector : ITrackDetector
         var track = Detect();
         if (track != null) return track;
 
-        // SMTC 兜底
+        // SMTC 兜底（全局多会话）
         try
         {
             var smtc = await _smtc.GetFromSmtcOnlyAsync();
             if (smtc is { Title.Length: > 0 })
             {
+                _logger.LogDebug("曲目来源=SMTC: {Title} ({App})", smtc.Title, smtc.PlaybackApp);
                 AdoptTrack(smtc);
                 return smtc;
             }
         }
-        catch { }
+        catch (Exception ex) { _logger.LogWarning(ex, "SMTC 兜底异常"); }
 
         // 本地播放器 API 兜底（网易云；SMTC 不可用环境的关闭窗口场景）
         try
@@ -122,18 +127,23 @@ public class TrackDetector : ITrackDetector
             var local = await _localApi.GetTrackAsync();
             if (local is { Title.Length: > 0 })
             {
+                _logger.LogDebug("曲目来源=本地API: {Title}", local.Title);
                 AdoptTrack(local);
                 return local;
             }
         }
-        catch { }
+        catch (Exception ex) { _logger.LogWarning(ex, "本地 API 兜底异常"); }
 
         // 所有来源暂时失效：若播放器进程仍存活（关闭窗口后台播放）或距上次确认播放未超 30s，
         // 保持当前曲目，使歌词/封面持续显示；播放器已退出才清空
         if (_currentTrack != null &&
             ((DateTime.UtcNow - _lastDetectedAt).TotalSeconds < 30 || IsPlayerAlive()))
+        {
+            _logger.LogTrace("所有来源失效，保持当前曲目: {Title}", _currentTrack.Title);
             return _currentTrack;
+        }
 
+        _logger.LogTrace("播放器已退出或无当前曲目，清空检测");
         _lastId = "";
         return null;
     }

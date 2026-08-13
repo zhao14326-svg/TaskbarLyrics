@@ -203,7 +203,8 @@ Console.WriteLine("\n=== 测试14: 拖进度条回滚 AlignTo ===");
 var det = new TrackDetector(new WindowTitleParser(),
     new SmtcResolver(new SmtcMediaService(new WindowTitleParser())),
     new LocalApiResolver(new PlayerLocalApiService()),
-    new TrackNormalizer());
+    new TrackNormalizer(),
+    Microsoft.Extensions.Logging.Abstractions.NullLogger<TrackDetector>.Instance);
 // 通过反射注入当前曲目（生产环境由窗口/SMTC 检测设置），使 GetPosition 可用
 var field = typeof(TrackDetector).GetField("_currentTrack",
     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);

@@ -94,31 +94,76 @@ public class SmtcMediaService : IMediaService
         catch { return null; }
     }
 
-    // ==================== SMTC ====================
+    // ==================== SMTC（全局多会话） ====================
 
+    /// <summary>
+    /// 遍历所有媒体会话读取当前曲目（全局 SMTC）。
+    /// 网易云等播放器若不是系统"当前会话"（如浏览器占用当前会话）时，
+    /// GetCurrentSession() 读不到，需遍历 GetSessions() 按优先级选取：
+    /// ① 活跃会话(position>0 或 Playing) ② 已知音乐播放器会话 ③ 首个有标题的会话。
+    /// </summary>
     private async Task<MediaTrack?> GetFromSmtcAsync()
     {
         try
         {
             var manager = await GetManagerAsync();
             if (manager == null) return null;
-            var session = manager.GetCurrentSession();
+
+            // 会话选择优先级：活跃 > 已知音乐播放器 > 首个有效标题
+            GlobalSystemMediaTransportControlsSession? active = null;
+            GlobalSystemMediaTransportControlsSession? knownPlayer = null;
+            GlobalSystemMediaTransportControlsSession? firstValid = null;
+            try
+            {
+                foreach (var s in manager.GetSessions())
+                {
+                    try
+                    {
+                        var props = await s.TryGetMediaPropertiesAsync();
+                        if (string.IsNullOrEmpty(props?.Title)) continue;
+                        var st = s.GetPlaybackInfo()?.PlaybackStatus.ToString() ?? "";
+                        var tl = s.GetTimelineProperties();
+                        var isActive = tl != null &&
+                            (tl.Position > TimeSpan.Zero || st.Equals("Playing", StringComparison.OrdinalIgnoreCase));
+                        var appId = s.SourceAppUserModelId ?? "";
+                        if (isActive) { active = s; break; }        // 活跃会话立即使用
+                        if (knownPlayer == null && IsKnownPlayerApp(appId)) knownPlayer = s;
+                        firstValid ??= s;
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+
+            var session = active ?? knownPlayer ?? firstValid ?? manager.GetCurrentSession();
             if (session == null) return null;
-            var props = await session.TryGetMediaPropertiesAsync();
-            if (string.IsNullOrEmpty(props?.Title)) return null;
+            var mediaProps = await session.TryGetMediaPropertiesAsync();
+            if (string.IsNullOrEmpty(mediaProps?.Title)) return null;
 
             var status = session.GetPlaybackInfo()?.PlaybackStatus.ToString() ?? "Unknown";
             var position = TimeSpan.Zero;
             var duration = TimeSpan.Zero;
             try { var tl = session.GetTimelineProperties(); if (tl != null) { position = tl.Position; duration = tl.EndTime; } } catch { }
             byte[]? thumb = null;
-            if (props.Thumbnail != null) thumb = await ReadThumbnailAsync(props.Thumbnail);
-            var artist = props.Artist == null ? "" : string.Join(", ", props.Artist);
+            if (mediaProps.Thumbnail != null) thumb = await ReadThumbnailAsync(mediaProps.Thumbnail);
+            var artist = mediaProps.Artist == null ? "" : string.Join(", ", mediaProps.Artist);
 
-            return new MediaTrack(props.Title ?? "", artist, props.AlbumTitle ?? "",
+            return new MediaTrack(mediaProps.Title ?? "", artist, mediaProps.AlbumTitle ?? "",
                 session.SourceAppUserModelId ?? "SMTC", status, position, duration, thumb);
         }
         catch { return null; }
+    }
+
+    /// <summary>判断 SMTC 会话是否来自常见音乐播放器（用于全局会话优先级选择）。</summary>
+    private static bool IsKnownPlayerApp(string appId)
+    {
+        if (string.IsNullOrEmpty(appId)) return false;
+        var id = appId.ToLowerInvariant();
+        return id.Contains("cloudmusic") || id.Contains("netease") || id.Contains("qqmusic")
+            || id.Contains("kugou") || id.Contains("kuwo") || id.Contains("kwmusic")
+            || id.Contains("spotify") || id.Contains("foobar") || id.Contains("musicbee")
+            || id.Contains("wmplayer") || id.Contains("mediaplayer") || id.Contains("aimp")
+            || id.Contains("itunes") || id.Contains("applemusic") || id.Contains("migu");
     }
 
     private async Task<byte[]?> ReadThumbnailAsync(IRandomAccessStreamReference reference)
