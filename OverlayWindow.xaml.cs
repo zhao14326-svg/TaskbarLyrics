@@ -5,6 +5,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
+using Microsoft.Extensions.Logging;
 using TaskbarLyrics.Helpers;
 using TaskbarLyrics.Models;
 using TaskbarLyrics.Services;
@@ -26,6 +27,8 @@ public partial class OverlayWindow : Window
     private bool _webReady;
     private string _lastKey = "";
     private string _lastCoverKey = "";
+    // 最近一次有效的曲目对象（newTrack 判定用“同歌容忍匹配”，来源切换/标题细节变化不触发清空）
+    private MediaTrack? _lastTrack;
     private double _dpiScale = 1.0;
     private IntPtr _windowHwnd;
     private IntPtr _oldRgn;
@@ -38,6 +41,7 @@ public partial class OverlayWindow : Window
     private bool _userHidden;
 
     private readonly ITrackDetector _detector;
+    private readonly Microsoft.Extensions.Logging.ILogger<OverlayWindow> _logger;
 
     // Spectrum simulation
     private float[] _specBands = new float[24];
@@ -81,7 +85,8 @@ public partial class OverlayWindow : Window
     private double _reportedContentW, _reportedContentH;
 
     public OverlayWindow(AppSettings settings, ILyricsProvider lyrics,
-        IMediaService smtc, ICoverArtProvider coverArt, IPlayerLocalApiService localApi, ITrackDetector detector)
+        IMediaService smtc, ICoverArtProvider coverArt, IPlayerLocalApiService localApi, ITrackDetector detector,
+        Microsoft.Extensions.Logging.ILogger<OverlayWindow> logger)
     {
         InitializeComponent();
         _settings = settings;
@@ -90,6 +95,7 @@ public partial class OverlayWindow : Window
         _coverArt = coverArt;
         _localApi = localApi;
         _detector = detector;
+        _logger = logger;
         Topmost = _settings.AlwaysOnTop;
         CompositionTarget.Rendering += OnRendering;
         Loaded += OnLoaded;
@@ -335,10 +341,16 @@ public partial class OverlayWindow : Window
             ? LyricsManager.Normalize($"{track.Title}|{track.Artist}")
             : "";
 
-        // 换歌：重置曲目级状态（同一播放器内保持 SMTC 信任，避免重新验证造成延迟）
-        bool newTrack = key != _lastKey;
+        // 换歌：重置曲目级状态（同一播放器内保持 SMTC 信任，避免重新验证造成延迟）。
+        // 用“同歌容忍匹配”判定：SMTC/本地API 兜底来源与窗口标题解析的曲目细节不同
+        // （歌手顺序/括号/大小写/版本后缀）不视为换歌，避免关窗后误清空歌词与封面。
+        bool newTrack = track != null && (_lastTrack == null || !TracksMatch(track, _lastTrack));
+        var prevTrack = _lastTrack; // 记录前曲（newTrack 分支日志用）
+        if (track != null) _lastTrack = track;
         if (newTrack)
         {
+            _logger.LogDebug("检测到换歌: {Title}|{Artist} (key {Key}, 前曲 {PrevTitle})",
+                track?.Title, track?.Artist, key, prevTrack?.Title);
             _lastKey = key;
             _lastSentIndex = -2;
             _lastSentMode = "";
@@ -479,6 +491,7 @@ public partial class OverlayWindow : Window
 
         if (track == null)
         {
+            _logger.LogDebug("曲目检测为空，前端进入 idle");
             _specShouldSend = false;
             _lastSentMode = "idle";
             _lastSentIndex = -1;
@@ -901,7 +914,7 @@ public partial class OverlayWindow : Window
             {
                 case "ready":
                     // 页面就绪：推送配置 + 强制下次 tick 重新获取所有数据
-                    Dispatcher.Invoke(() => { SendConfig(); SendLayout(); _lastKey = ""; _lastCoverKey = ""; });
+                    Dispatcher.Invoke(() => { SendConfig(); SendLayout(); _lastKey = ""; _lastCoverKey = ""; _lastTrack = null; });
                     break;
                 case "sizeReport":
                     var w = doc.RootElement.TryGetProperty("width", out var jw) ? jw.GetDouble() : 0;

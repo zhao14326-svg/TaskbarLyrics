@@ -121,7 +121,8 @@ public partial class App : System.Windows.Application
             Services.GetRequiredService<IMediaService>(),
             Services.GetRequiredService<ICoverArtProvider>(),
             Services.GetRequiredService<IPlayerLocalApiService>(),
-            Services.GetRequiredService<ITrackDetector>());
+            Services.GetRequiredService<ITrackDetector>(),
+            Services.GetRequiredService<Microsoft.Extensions.Logging.ILogger<OverlayWindow>>());
         Overlay.Show();
 
         _mainWindow = new MainWindow(Services.GetRequiredService<IMediaService>());
