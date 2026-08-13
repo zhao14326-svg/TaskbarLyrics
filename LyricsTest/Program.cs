@@ -224,6 +224,27 @@ bool ok14 = seekPos1 > 29 && seekPos1 < 31
 Console.WriteLine($"  30s→{seekPos1:F1}s → {seekPos2:F1}s → 回拖10s→{seekPos3:F1}s → {seekPos4:F1}s");
 Console.WriteLine(ok14 ? "✅ 进度条回滚跟随通过" : "❌ 进度条回滚跟随失败");
 
+
+// ============ 测试14b: 窗口标题解析（歌名-歌手，不反转；过滤非音乐窗口） ============
+Console.WriteLine("\n=== 测试14b: 窗口标题解析 ===");
+var wtp = new WindowTitleParser();
+// 英文歌：歌名短于歌手名，旧逻辑按长度会错误反转成“歌名=Ingrid Michaelson”
+var (s1, a1) = wtp.ParseTitle("Everybody - Ingrid Michaelson");
+// 中文歌：歌名短于歌手名（答案 - 杨坤/郭采洁），旧逻辑反转成“歌名=杨坤/郭采洁”
+var (s2, a2) = wtp.ParseTitle("答案 - 杨坤/郭采洁");
+// 常规中文：歌名长于歌手名
+var (s3, a3) = wtp.ParseTitle("忘记了也没关系 - DOUDOU");
+// 不带连字符的标题（如网易云纯歌名窗口）不应解析
+var (s4, a4) = wtp.ParseTitle("网易云音乐");
+bool ok14b = s1 == "Everybody" && a1 == "Ingrid Michaelson"
+    && s2 == "答案" && a2 == "杨坤/郭采洁"
+    && s3 == "忘记了也没关系" && a3 == "DOUDOU"
+    && s4 == null;
+Console.WriteLine($"  'Everybody - Ingrid Michaelson' → 歌:{s1} 歌手:{a1}");
+Console.WriteLine($"  '答案 - 杨坤/郭采洁' → 歌:{s2} 歌手:{a2}");
+Console.WriteLine($"  '忘记了也没关系 - DOUDOU' → 歌:{s3} 歌手:{a3}");
+Console.WriteLine(ok14b ? "✅ 窗口标题解析通过（不再反转歌名/歌手）" : "❌ 窗口标题解析失败");
+
 // ============ 测试15: 纯文本歌词按歌曲总时长估算行间隔 ============
 Console.WriteLine("\n=== 测试15: 纯文本歌词按时长估算行间隔 ===");
 var estLong = LrcParser.EstimatePlainInterval(200, "第一句\n第二句\n第三句\n第四句\n第五句"); // 5行,200s → 40s → 钳制 8s
@@ -302,7 +323,7 @@ try
 }
 finally { try { Directory.Delete(nestDir, true); } catch { } }
 
-Console.WriteLine($"\n最终结果: {(ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8 && ok9 && ok10 && ok11 && ok12 && ok13 && ok14 && ok15 && ok16 && ok17 && ok18 ? "全部通过 🎉" : "存在失败项")}");
+Console.WriteLine($"\n最终结果: {(ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8 && ok9 && ok10 && ok11 && ok12 && ok13 && ok14 && ok14b && ok15 && ok16 && ok17 && ok18 ? "全部通过 🎉" : "存在失败项")}");
 
 // ==================== 测试文件构造 ====================
 

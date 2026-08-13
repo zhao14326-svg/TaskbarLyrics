@@ -56,7 +56,6 @@ public class WindowTitleParser
     /// <summary>扫描所有进程，从窗口标题中识别 "歌曲 - 歌手" 格式。</summary>
     private MediaTrack? ScanAllWindows()
     {
-        MediaTrack? best = null;
         try
         {
             var allProcs = Process.GetProcesses();
@@ -90,26 +89,29 @@ public class WindowTitleParser
 
                     var procName = p.ProcessName;
 
-                    // 检查是否是已知播放器（或标题包含明显音乐标记）
-                    bool isKnown = KnownPlayers.Contains(procName)
-                        || title.Contains("音乐") || title.Contains("Music")
-                        || title.Contains("播放") || title.Contains("Play");
-
                     // 过滤明显噪音（如浏览器标签页）
                     if (procName is "msedge" or "chrome" or "firefox" or "brave") continue;
                     if (song.Contains("Microsoft") || song.Contains("Windows")) continue;
 
-                    var track = new MediaTrack(song, artist ?? "", "",
-                        procName, paused ? "Paused" : "Playing", TimeSpan.Zero, TimeSpan.Zero, null);
+                    // 只信任已知音乐播放器进程，或标题含明显音乐标记的窗口。
+                    // 不采用“非已知窗口标题看着像歌曲”的兜底：ccswitch 等桌面工具的
+                    // 窗口标题（如 "com.ccswitch.desktop - siw"）会被误判成歌曲，
+                    // 触发 OverlayWindow 误判换歌，清空歌词/封面。
+                    bool isKnown = KnownPlayers.Contains(procName)
+                        || title.Contains("音乐") || title.Contains("Music")
+                        || title.Contains("正在播放") || title.Contains("播放中")
+                        || title.Contains("Now Playing") || title.Contains("现在播放");
 
-                    if (isKnown) return track; // 已知播放器立刻返回
-                    best ??= track;             // 否则保留第一个候选
+                    if (!isKnown) continue;
+
+                    return new MediaTrack(song, artist ?? "", "",
+                        procName, paused ? "Paused" : "Playing", TimeSpan.Zero, TimeSpan.Zero, null);
                 }
                 catch { }
             }
         }
         catch { }
-        return best;
+        return null;
     }
 
     /// <summary>从窗口标题解析 "歌曲名 - 歌手名" 格式（通用）。</summary>
@@ -126,11 +128,9 @@ public class WindowTitleParser
         if (part1.Contains("桌面歌词") || part1.Contains("歌词") && part1.Length < 8) return (null, null);
         if (part2.Contains("桌面歌词") || part2.Contains("歌词") && part2.Length < 8) return (null, null);
 
-        // 通常是 "歌曲 - 歌手"，但也可能是 "歌手 - 歌曲"，根据长度判断
-        // 中文歌名通常较长，歌手名较短
-        if (part1.Length >= part2.Length)
-            return (part1, part2);
-        else
-            return (part2, part1); // 反转：歌手 - 歌曲 → 返回 (歌曲, 歌手)
+        // 主流播放器窗口标题统一为 "歌名 - 歌手"（网易云/QQ音乐/酷狗/Spotify 等）。
+        // 不做“按长度猜反转”：那会把 "Everybody - Ingrid Michaelson" 误判成
+        // “歌名=Ingrid Michaelson”，与 SMTC 曲目不一致，触发误判换歌清空歌词。
+        return (part1, part2);
     }
 }
