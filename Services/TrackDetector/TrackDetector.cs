@@ -1,10 +1,12 @@
-﻿namespace TaskbarLyrics.Services;
+﻿using System.Diagnostics;
+
+namespace TaskbarLyrics.Services;
 
 /// <summary>
 /// 曲目检测编排：窗口标题 → SMTC → 本地 API 多路兜底。
 /// 窗口标题（&lt;1ms 快速检测）为主源；播放器关闭窗口（后台播放）时，
-/// 依次用 SMTC 会话、网易云本地 API 兜底，保证歌词/封面持续显示。
-/// 带播放位置校准（拖进度条/seek/暂停恢复即时同步）。
+/// 依次用 SMTC 会话、网易云本地 API 兜底；全部失效且播放器进程仍存活时保持当前曲目，
+/// 保证歌词/封面持续显示。带播放位置校准（拖进度条/seek/暂停恢复即时同步）。
 /// </summary>
 public class TrackDetector : ITrackDetector
 {
@@ -12,6 +14,14 @@ public class TrackDetector : ITrackDetector
     private readonly SmtcResolver _smtc;
     private readonly LocalApiResolver _localApi;
     private readonly TrackNormalizer _normalizer;
+
+    // 常见播放器进程名（用于窗口关闭后台播放时的进程存活检测）
+    private static readonly string[] KnownPlayerProcesses =
+    [
+        "cloudmusic", "netease-cloud-music", "qqmusic", "qqmusicplayer",
+        "kugou", "kugoumusic", "kgmusic", "kwmusic", "kwm",
+        "foobar2000", "musicbee", "wmplayer", "spotify",
+    ];
 
     private MediaTrack? _currentTrack;
     private DateTime _trackStartTime;
@@ -118,7 +128,34 @@ public class TrackDetector : ITrackDetector
         }
         catch { }
 
+        // 所有来源暂时失效：若播放器进程仍存活（关闭窗口后台播放）或距上次确认播放未超 30s，
+        // 保持当前曲目，使歌词/封面持续显示；播放器已退出才清空
+        if (_currentTrack != null &&
+            ((DateTime.UtcNow - _lastDetectedAt).TotalSeconds < 30 || IsPlayerAlive()))
+            return _currentTrack;
+
+        _lastId = "";
         return null;
+    }
+
+    /// <summary>检测上次曲目来源的播放器进程是否仍存活（关闭窗口后台播放时用于决定是否保持当前曲目）。</summary>
+    private bool IsPlayerAlive()
+    {
+        if (_currentTrack == null) return false;
+        var app = _currentTrack.PlaybackApp;
+        if (!string.IsNullOrEmpty(app) &&
+            !app.Contains("SMTC", StringComparison.OrdinalIgnoreCase) &&
+            !app.Contains("Local", StringComparison.OrdinalIgnoreCase) &&
+            !app.Equals("test", StringComparison.OrdinalIgnoreCase))
+        {
+            try { if (Process.GetProcessesByName(app).Length > 0) return true; } catch { }
+        }
+        // 兜底：检查常见播放器进程（本地 API 来源的 PlaybackApp="NeteaseLocal" 等场景）
+        foreach (var p in KnownPlayerProcesses)
+        {
+            try { if (Process.GetProcessesByName(p).Length > 0) return true; } catch { }
+        }
+        return false;
     }
 
     /// <summary>
