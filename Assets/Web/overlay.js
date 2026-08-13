@@ -68,28 +68,31 @@ function applyTheme(m) {
     var r = document.documentElement.style;
     var cfg = m.theme || m;
     var pal = cfg.palette;
-    if (cfg.textColor) r.setProperty('--text-color', '#' + cfg.textColor.replace(/#/g,''));
+    var userText = cfg.textColor ? '#' + cfg.textColor.replace(/#/g,'') : null;
+    if (cfg.textColor) r.setProperty('--text-color', userText);
     if (cfg.bgColor) { r.setProperty('--bg-color', '#' + cfg.bgColor.replace(/#/g,'')); r.setProperty('--bg-rgb', hexToRgb(cfg.bgColor)); }
     if (pal) {
-        // 封面取色色板:应用到面板/文字/装饰
+        // 封面取色色板:应用到面板/装饰;歌词文字色优先用用户手动设置,否则用取色
         r.setProperty('--accent-color', '#' + pal.accent.replace(/#/g,''));
         r.setProperty('--accent-rgb', hexToRgb(pal.accent));
         r.setProperty('--surface-rgb', pal.surfaceRgb);
-        r.setProperty('--text-primary', '#' + pal.textPrimary.replace(/#/g,''));
-        r.setProperty('--text-secondary', '#' + pal.textSecondary.replace(/#/g,''));
+        var textPrimary = userText || '#' + pal.textPrimary.replace(/#/g,'');
+        var textSecondary = userText || '#' + pal.textSecondary.replace(/#/g,'');
+        r.setProperty('--text-primary', textPrimary);
+        r.setProperty('--text-secondary', textSecondary);
         // 文字阴影随文字深浅自适应:深色文字用白色微光,浅色文字用黑色微影
-        var tr = parseInt(pal.textPrimary.replace('#','').substr(0,2),16);
-        var tg = parseInt(pal.textPrimary.replace('#','').substr(2,2),16);
-        var tb = parseInt(pal.textPrimary.replace('#','').substr(4,2),16);
-        r.setProperty('--text-shadow', (tr*0.299 + tg*0.587 + tb*0.114) < 128
+        var tr2 = parseInt(textPrimary.replace('#','').substr(0,2),16);
+        var tg2 = parseInt(textPrimary.replace('#','').substr(2,2),16);
+        var tb2 = parseInt(textPrimary.replace('#','').substr(4,2),16);
+        r.setProperty('--text-shadow', (tr2*0.299 + tg2*0.587 + tb2*0.114) < 128
             ? '0 1px 2px rgba(255,255,255,0.35)'
             : '0 1px 2px rgba(0,0,0,0.45)');
     } else {
         // 系统主题兜底:波形色作强调,用户背景色作表面
         if (cfg.accentColor) { r.setProperty('--accent-color', '#' + cfg.accentColor.replace(/#/g,'')); r.setProperty('--accent-rgb', hexToRgb(cfg.accentColor)); }
         if (cfg.bgColor) r.setProperty('--surface-rgb', hexToRgb(cfg.bgColor));
-        r.setProperty('--text-primary', '#FFFFFF');
-        r.setProperty('--text-secondary', '#B9B9C2');
+        r.setProperty('--text-primary', userText || '#FFFFFF');
+        r.setProperty('--text-secondary', userText || '#B9B9C2');
     }
     if (cfg.fontSize != null) r.setProperty('--font-size', cfg.fontSize + 'px');
     if (cfg.coverSize != null) r.setProperty('--cover-size', cfg.coverSize + 'px');

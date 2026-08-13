@@ -82,6 +82,23 @@ public class TrackDetector : ITrackDetector
     /// 归零：重置检测与校准状态（应用启动/重新显示时调用），
     /// 使下次检测从干净的零点开始，再由 SMTC 自动校准到真实进度。
     /// </summary>
+    /// <summary>
+    /// 播放器关闭窗口(后台播放)时窗口标题不可读:用 SMTC 会话曲目接管检测器状态,
+    /// 使 GetPosition/歌词校准继续工作(由 RefreshAsync 在窗口扫描失败时调用)。
+    /// </summary>
+    public void AdoptSmtcTrack(MediaTrack track)
+    {
+        if (track == null || string.IsNullOrEmpty(track.Title)) return;
+        _currentTrack = track;
+        _lastId = LyricsManager.Normalize($"{track.Title}|{track.Artist}");
+        _trackStartTime = DateTime.UtcNow - track.Position;
+        _lastKnownPos = track.Position.TotalSeconds;
+        _lastDetectedAt = DateTime.UtcNow;   // 重置窗口检测 hold 计时
+        _duration = track.Duration;
+        _isPaused = !track.PlaybackStatus.Equals("Playing", StringComparison.OrdinalIgnoreCase);
+        _hasCalib = false;
+    }
+
     public void Reset()
     {
         _currentTrack = null;

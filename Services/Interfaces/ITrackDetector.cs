@@ -26,6 +26,9 @@ public interface ITrackDetector
     /// <summary>当前播放位置。</summary>
     TimeSpan GetPosition();
 
+    /// <summary>播放器关闭窗口（后台播放）时，用 SMTC 曲目接管检测器状态。</summary>
+    void AdoptSmtcTrack(MediaTrack track);
+
     /// <summary>当前曲目总时长（来自 SMTC）。</summary>
     TimeSpan Duration { get; }
 
