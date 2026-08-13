@@ -72,6 +72,10 @@ public partial class App : System.Windows.Application
 
         // 配置依赖注入容器（单例：全部服务共享一份）
         var sc = new ServiceCollection();
+        sc.AddSingleton<TrackNormalizer>();
+        sc.AddSingleton<WindowTitleParser>();
+        sc.AddSingleton<SmtcResolver>();
+        sc.AddSingleton<LocalApiResolver>();
         sc.AddSingleton<INeteaseApi, NeteaseApi>();
         sc.AddSingleton<IAudioTagLyricsReader, AudioTagLyricsReader>();
         sc.AddSingleton<ILyricsCache, LyricCacheService>();
@@ -101,7 +105,8 @@ public partial class App : System.Windows.Application
         Overlay = new OverlayWindow(Settings, lyrics,
             Services.GetRequiredService<IMediaService>(),
             Services.GetRequiredService<ICoverArtProvider>(),
-            Services.GetRequiredService<IPlayerLocalApiService>());
+            Services.GetRequiredService<IPlayerLocalApiService>(),
+            Services.GetRequiredService<ITrackDetector>());
         Overlay.Show();
 
         _mainWindow = new MainWindow(Services.GetRequiredService<IMediaService>());

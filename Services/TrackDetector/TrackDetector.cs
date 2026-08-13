@@ -1,15 +1,18 @@
-﻿using System.Net.Http;
-using System.Text.Json;
+﻿namespace TaskbarLyrics.Services;
 
-namespace TaskbarLyrics.Services;
 /// <summary>
-/// Fast/slow separated track detector.
-/// Window scan (<1ms) for instant detection, SMTC for position calibration.
-/// Holds current track for 5s when detection temporarily fails.
+/// 曲目检测编排：窗口标题 → SMTC → 本地 API 多路兜底。
+/// 窗口标题（&lt;1ms 快速检测）为主源；播放器关闭窗口（后台播放）时，
+/// 依次用 SMTC 会话、网易云本地 API 兜底，保证歌词/封面持续显示。
+/// 带播放位置校准（拖进度条/seek/暂停恢复即时同步）。
 /// </summary>
 public class TrackDetector : ITrackDetector
 {
-    private readonly IMediaService _smtc;
+    private readonly WindowTitleParser _titleParser;
+    private readonly SmtcResolver _smtc;
+    private readonly LocalApiResolver _localApi;
+    private readonly TrackNormalizer _normalizer;
+
     private MediaTrack? _currentTrack;
     private DateTime _trackStartTime;
     private DateTime _lastDetectedAt = DateTime.MinValue; // 最后成功解析到曲目的时间（检测失败宽限基准）
@@ -18,9 +21,12 @@ public class TrackDetector : ITrackDetector
     private TimeSpan _duration;
     private string _lastId = "";
 
-    public TrackDetector(IMediaService smtc)
+    public TrackDetector(WindowTitleParser titleParser, SmtcResolver smtc, LocalApiResolver localApi, TrackNormalizer normalizer)
     {
+        _titleParser = titleParser;
         _smtc = smtc;
+        _localApi = localApi;
+        _normalizer = normalizer;
     }
 
     // 校准状态
@@ -36,19 +42,19 @@ public class TrackDetector : ITrackDetector
     /// <summary>Detect track fast. Window scan first, skip slow sources.</summary>
     public MediaTrack? Detect()
     {
-        var windowTrack = _smtc.ScanWindowTitles();
+        var windowTrack = _titleParser.ScanWindowTitles();
 
         if (windowTrack != null)
         {
-            var id = LyricsManager.Normalize($"{windowTrack.Title}|{windowTrack.Artist}");
+            var id = _normalizer.NormalizeTrack(windowTrack.Title, windowTrack.Artist);
             if (id.Length == 0) goto hold;
 
             _lastDetectedAt = DateTime.UtcNow; // 成功解析到曲目，记录检测时间
 
             if (id != _lastId) // New song — reset clock
             {
-                // 窗口标题的细微变化（歌手-歌名顺序颠倒等）不应触发切歌：
-                // 与当前曲目模糊匹配时视为同一首，保持原曲目与进度时钟，避免反复重新获取歌词/封面
+                // 窗口标题的细微变化（歌手-歌名顺序颠倒、(Live) 后缀等）不应触发切歌：
+                // 与当前曲目去版本后缀匹配时视为同一首，保持原曲目与进度时钟
                 if (_currentTrack != null && SameSong(_currentTrack, windowTrack))
                 {
                     windowTrack = _currentTrack;
@@ -79,18 +85,51 @@ public class TrackDetector : ITrackDetector
     }
 
     /// <summary>
-    /// 归零：重置检测与校准状态（应用启动/重新显示时调用），
-    /// 使下次检测从干净的零点开始，再由 SMTC 自动校准到真实进度。
+    /// 完整兜底检测（异步）：窗口标题 → SMTC 会话 → 本地播放器 API。
+    /// 播放器关闭窗口（后台播放）时窗口标题不可读，但 SMTC 会话或本地 API 仍提供曲目，
+    /// 依次尝试，成功后接管检测器状态（位置时钟/暂停/时长），使歌词与封面持续显示。
     /// </summary>
+    public async Task<MediaTrack?> DetectWithFallbackAsync()
+    {
+        var track = Detect();
+        if (track != null) return track;
+
+        // SMTC 兜底
+        try
+        {
+            var smtc = await _smtc.GetFromSmtcOnlyAsync();
+            if (smtc is { Title.Length: > 0 })
+            {
+                AdoptTrack(smtc);
+                return smtc;
+            }
+        }
+        catch { }
+
+        // 本地播放器 API 兜底（网易云；SMTC 不可用环境的关闭窗口场景）
+        try
+        {
+            var local = await _localApi.GetTrackAsync();
+            if (local is { Title.Length: > 0 })
+            {
+                AdoptTrack(local);
+                return local;
+            }
+        }
+        catch { }
+
+        return null;
+    }
+
     /// <summary>
-    /// 播放器关闭窗口(后台播放)时窗口标题不可读:用 SMTC 会话曲目接管检测器状态,
-    /// 使 GetPosition/歌词校准继续工作(由 RefreshAsync 在窗口扫描失败时调用)。
+    /// 播放器关闭窗口（后台播放）或窗口标题不可读时，用兜底来源（SMTC/本地API）的
+    /// 曲目接管检测器状态，使 GetPosition/歌词校准继续工作。
     /// </summary>
-    public void AdoptSmtcTrack(MediaTrack track)
+    public void AdoptTrack(MediaTrack track)
     {
         if (track == null || string.IsNullOrEmpty(track.Title)) return;
         _currentTrack = track;
-        _lastId = LyricsManager.Normalize($"{track.Title}|{track.Artist}");
+        _lastId = _normalizer.NormalizeTrack(track.Title, track.Artist);
         _trackStartTime = DateTime.UtcNow - track.Position;
         _lastKnownPos = track.Position.TotalSeconds;
         _lastDetectedAt = DateTime.UtcNow;   // 重置窗口检测 hold 计时
@@ -99,6 +138,28 @@ public class TrackDetector : ITrackDetector
         _hasCalib = false;
     }
 
+    /// <summary>曲目是否同一首（去版本后缀后的曲目名+歌手比对，容忍"歌手-歌名"顺序颠倒）。</summary>
+    private bool SameSong(MediaTrack a, MediaTrack b)
+    {
+        if (a == null || b == null) return false;
+        var aKey = _normalizer.NormalizeTrack(a.Title, a.Artist);
+        var bKey = _normalizer.NormalizeTrack(b.Title, b.Artist);
+        if (aKey.Length == 0 || bKey.Length == 0) return false;
+        if (aKey == bKey) return true;
+
+        // 兼容“歌手-歌名”被窗口标题颠倒解析：歌名/歌手交叉匹配
+        var aT = _normalizer.NormalizeTitle(a.Title);
+        var bT = _normalizer.NormalizeTitle(b.Title);
+        var aA = LyricsManager.Normalize(a.Artist);
+        var bA = LyricsManager.Normalize(b.Artist);
+        if (aT.Length > 0 && aT == bA && aA == bT) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// 归零：重置检测与校准状态（应用启动/重新显示时调用），
+    /// 使下次检测从干净的零点开始，再由 SMTC 自动校准到真实进度。
+    /// </summary>
     public void Reset()
     {
         _currentTrack = null;
@@ -111,22 +172,6 @@ public class TrackDetector : ITrackDetector
         _lastCalibPos = TimeSpan.Zero;
         _lastCalibTime = DateTime.MinValue;
         _hasCalib = false;
-    }
-
-    /// <summary>模糊判断两首曲目是否为同一首歌（歌名一致，或“歌手-歌名”与“歌名-歌手”顺序颠倒）。</summary>
-    private static bool SameSong(MediaTrack a, MediaTrack b)
-    {
-        var aT = LyricsManager.Normalize(a.Title);
-        var bT = LyricsManager.Normalize(b.Title);
-        var aA = LyricsManager.Normalize(a.Artist);
-        var bA = LyricsManager.Normalize(b.Artist);
-        if (aT.Length == 0 || bT.Length == 0) return false;
-
-        // 歌名一致（歌手一侧为空时视为同一首）
-        if (aT == bT && (aA.Length == 0 || bA.Length == 0 || aA == bA)) return true;
-        // “歌手-歌名”与“歌名-歌手”顺序颠倒
-        if (aA.Length > 0 && aT == bA && aA == bT) return true;
-        return false;
     }
 
     /// <summary>当前播放位置：本地时钟（已校准时与真实播放进度一致）。</summary>
@@ -233,3 +278,4 @@ public class TrackDetector : ITrackDetector
     public string CurrentId => _lastId;
     public MediaTrack? Current => _currentTrack;
 }
+

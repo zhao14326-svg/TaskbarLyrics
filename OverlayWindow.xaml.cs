@@ -70,7 +70,6 @@ public partial class OverlayWindow : Window
     private DateTime _lastSmtcAdvance = DateTime.MinValue; // 最近一次观察到 SMTC 位置前进
     private TimeSpan? _prevSmtcPos;                     // 上一次 SMTC 位置
     private DateTime _lastSnapAt = DateTime.MinValue;    // 上一次 SMTC 快照时刻（用于 seek 跳变检测）
-    private DateTime _lastSmtcFallbackAt = DateTime.MinValue; // 播放器关闭窗口时的 SMTC 兜底节流（2s 一次）
 
     // 无可信 SMTC 时的本地播放器 API 状态校验（网易云暂停时窗口标题不标注暂停，需用本地 API 确认）
     private bool? _localApiPlaying;                     // 本地 API 最近一次播放状态（null=不可用）
@@ -82,7 +81,7 @@ public partial class OverlayWindow : Window
     private double _reportedContentW, _reportedContentH;
 
     public OverlayWindow(AppSettings settings, ILyricsProvider lyrics,
-        IMediaService smtc, ICoverArtProvider coverArt, IPlayerLocalApiService localApi)
+        IMediaService smtc, ICoverArtProvider coverArt, IPlayerLocalApiService localApi, ITrackDetector detector)
     {
         InitializeComponent();
         _settings = settings;
@@ -90,9 +89,7 @@ public partial class OverlayWindow : Window
         _smtc = smtc;
         _coverArt = coverArt;
         _localApi = localApi;
-        _detector = smtc is not null
-            ? new TrackDetector(smtc)
-            : throw new ArgumentNullException(nameof(smtc));
+        _detector = detector;
         Topmost = _settings.AlwaysOnTop;
         CompositionTarget.Rendering += OnRendering;
         Loaded += OnLoaded;
@@ -327,26 +324,12 @@ public partial class OverlayWindow : Window
         if (!_webReady) return;
         // 保持悬浮窗置顶（点击任务栏/开始菜单时不被任务栏遮挡，也不随任务栏隐藏而消失）
         EnsureTopmost();
-        // SMTC → 窗口标题扫描 → 本地 API（三重回退）
-        // Fast detection: window scan (<1ms), hold 1.5s on gap
-        var track = _detector.Detect();
+        // 曲目检测（多路兜底：窗口标题 → SMTC → 本地 API，由 TrackDetector 编排）
+        var track = await _detector.DetectWithFallbackAsync();
 
-        // ---- SMTC 实时校准（提前获取，用于兜底判定）----
+        // ---- SMTC 实时校准 ----
         SmtcMediaService.SmtcSnapshot? snap = null;
         try { snap = _smtc.PollSnapshot(); } catch { }
-
-        // 播放器关闭窗口（后台播放）时窗口标题不可读：SMTC 会话仍活跃则用 SMTC 兜底获取曲目
-        // （2s 节流，避免每个 tick 都查询会话；窗口标题恢复后走正常检测路径）
-        if (track == null && snap != null && (DateTime.UtcNow - _lastSmtcFallbackAt).TotalSeconds > 2)
-        {
-            _lastSmtcFallbackAt = DateTime.UtcNow;
-            var smtcTrack = await _smtc.GetFromSmtcOnlyAsync();
-            if (smtcTrack is { Title.Length: > 0 })
-            {
-                track = smtcTrack;
-                _detector.AdoptSmtcTrack(smtcTrack);
-            }
-        }
 
         var key = track != null
             ? LyricsManager.Normalize($"{track.Title}|{track.Artist}")
