@@ -57,7 +57,7 @@ public partial class App : System.Windows.Application
         });
 
         // Single instance
-        _mutex = new Mutex(true, "TaskbarLyrics.SingleInstance", out bool createdNew);
+        _mutex = new Mutex(true, @"Local\TaskbarLyrics.SingleInstance", out bool createdNew);
         if (!createdNew)
         {
             var hwnd = FindWindow(null, "任务栏歌词 - 设置");
@@ -87,6 +87,24 @@ public partial class App : System.Windows.Application
                 outputTemplate: "{Timestamp:HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
             .CreateLogger();
         sc.AddLogging(b => { b.ClearProviders(); b.AddSerilog(); });
+        // 全局异常日志：AppDomain 未处理异常 / WPF UI 线程异常 / Task 未观察异常 均写入日志，
+        // 崩溃时也能留下现场（之前异常只走 DebugView，文件日志看不到）。
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            Log.Fatal(e.ExceptionObject as Exception, "AppDomain 未处理异常");
+            Log.CloseAndFlush(); // 进程即将终止，立即落盘
+        };
+        DispatcherUnhandledException += (_, e) =>
+        {
+            Log.Error(e.Exception, "UI 线程未处理异常");
+            // 不标记已处理：让默认崩溃流程继续（同时已写入日志）
+        };
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            Log.Error(e.Exception, "Task 未观察异常");
+            e.SetObserved();
+        };
+
         sc.AddSingleton<TrackNormalizer>();
         sc.AddSingleton<WindowTitleParser>();
         sc.AddSingleton<SmtcResolver>();

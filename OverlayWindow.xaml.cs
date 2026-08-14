@@ -700,9 +700,44 @@ public partial class OverlayWindow : Window
 
     // ==================== CompositionTarget.Rendering (spectrum + auto-size) ====================
 
+    /// <summary>
+    /// 每帧（CompositionTarget.Rendering）同步当前歌词行：行切换立即推送，不等 250ms tick，
+    /// 使歌词滚动与屏幕刷新率同步，减少歌词行切换延迟。
+    /// 仅在播放中且有歌词时工作；轻量计算（GetPosition + 行查找），不阻塞渲染。
+    /// </summary>
+    private void SyncLyricLine()
+    {
+        if (!_wasPlaying) return;
+        if (_lyrics.Current is not { IsEmpty: false }) return;
+
+        var pos = _detector.GetPosition();
+        if (pos < TimeSpan.Zero) return;
+        var displayPos = pos + TimeSpan.FromMilliseconds(_settings.LyricOffsetMs);
+        if (displayPos < TimeSpan.Zero) displayPos = TimeSpan.Zero;
+
+        var cur = _lyrics.Current.GetLineAt(displayPos);
+        if (cur == null) return;
+        int index = _lyrics.Current.Lines.IndexOf(cur);
+        if (index < 0 || index == _lastSentIndex) return; // 行未变化，不重复推送
+
+        var progress = _lyrics.GetLineProgress(displayPos);
+        var nxt = _lyrics.Current.GetNextLineAt(displayPos);
+        int startMs = (int)cur.Time.TotalMilliseconds;
+        int endMs = (int)(nxt?.Time.TotalMilliseconds ?? cur.Time.TotalMilliseconds + 4000);
+
+        _lastSentIndex = index;
+        SendState("lyrics", (int)displayPos.TotalMilliseconds, index, progress,
+            "playing", _specShouldSend, startMs, endMs);
+    }
+
     private void OnRendering(object? sender, EventArgs e)
     {
-        if (!_webReady || !IsVisible || !_specShouldSend) return;
+        if (!_webReady || !IsVisible) return;
+
+        // ---- 歌词行同步：与屏幕刷新率同步切换歌词行（不等 250ms tick）----
+        SyncLyricLine();
+
+        if (!_specShouldSend) return;
 
         _specFrame++;
         // Throttle: send at ~30 fps when playing, ~15 fps when paused

@@ -7,7 +7,10 @@ namespace TaskbarLyrics;
 /// <summary>设置窗口：标签页式 UI，涵盖显示、封面、频谱、窗口和高级设置。</summary>
 public partial class MainWindow : Window
 {
-    private readonly System.Windows.Threading.DispatcherTimer _timer;
+    // CompositionTarget.Rendering 替代 DispatcherTimer：与屏幕刷新率同步触发，
+    // 用时间节流保证每秒最多刷新一次预览（避免无谓的全进程扫描）。
+    private DateTime _lastPreviewRefresh = DateTime.MinValue;
+    private static readonly TimeSpan PreviewInterval = TimeSpan.FromSeconds(1);
     private readonly IMediaService _smtc;
 
     public MainWindow(IMediaService smtc)
@@ -17,10 +20,18 @@ public partial class MainWindow : Window
         LoadSettings();
         WireSliders();
 
-        // 每秒刷新一次播放状态预览
-        _timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        _timer.Tick += Timer_Tick;
-        _timer.Start();
+        // 预览刷新：CompositionTarget.Rendering（每帧触发）→ 节流到 ~1s 一次。
+        // 与屏幕刷新率同步：窗口隐藏时 Rendering 不再触发，预览自然停止（无需 IsVisible 判断）。
+        System.Windows.Media.CompositionTarget.Rendering += OnRenderingFrame;
+        Closed += (_, _) => System.Windows.Media.CompositionTarget.Rendering -= OnRenderingFrame;
+    }
+
+    private void OnRenderingFrame(object? sender, EventArgs e)
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastPreviewRefresh) < PreviewInterval) return;
+        _lastPreviewRefresh = now;
+        _ = RefreshPreviewAsync(); // fire-and-forget：刷新失败不影响渲染循环
     }
 
     // ==================== 加载设置 ====================
@@ -128,10 +139,9 @@ public partial class MainWindow : Window
 
     // ==================== 状态预览 ====================
 
-    /// <summary>定时刷新播放状态预览（窗口隐藏时跳过，避免后台反复全进程扫描拖垮 UI 线程）。</summary>
-    private async void Timer_Tick(object? sender, EventArgs e)
+    /// <summary>刷新播放状态预览（Rendering 事件节流触发；窗口隐藏时不触发，避免后台反复全进程扫描拖垮 UI 线程）。</summary>
+    private async Task RefreshPreviewAsync()
     {
-        if (!IsVisible) return; // 设置窗口隐藏时不扫描，防止无谓的全进程枚举
         try
         {
             var track = await _smtc.GetCurrentTrackAsync();
