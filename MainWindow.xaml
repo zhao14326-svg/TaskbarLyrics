@@ -28,11 +28,35 @@
                         <CheckBox x:Name="ChkTextShadow" Content="文字阴影" Margin="0,0,0,10"/>
 
                         <TextBlock Text="歌词颜色（#RRGGBB）" FontWeight="SemiBold"/>
-                        <TextBox x:Name="TxtColor" Height="24" Margin="0,4,0,2"/>
+                        <DockPanel Margin="0,4,0,2">
+                            <Button x:Name="BtnPickColor" Content="选择…" Width="64" Height="24"
+                                    DockPanel.Dock="Right" Click="PickColor_Click" Tag="TxtColor"/>
+                            <Border x:Name="SwColor" Width="28" Height="24" Background="#FFFFFF"
+                                    BorderBrush="Gray" BorderThickness="1" Margin="0,0,6,0"
+                                    DockPanel.Dock="Left" MouseLeftButtonDown="Swatch_Click" Tag="TxtColor"/>
+                            <TextBox x:Name="TxtColor" Tag="SwColor" Height="24" VerticalContentAlignment="Center"
+                                     TextChanged="ColorText_TextChanged"/>
+                        </DockPanel>
                         <TextBlock Text="波形/频谱颜色（#RRGGBB）" FontWeight="SemiBold" Margin="0,8,0,0"/>
-                        <TextBox x:Name="TxtWaveColor" Height="24" Margin="0,4,0,2"/>
+                        <DockPanel Margin="0,4,0,2">
+                            <Button x:Name="BtnPickWaveColor" Content="选择…" Width="64" Height="24"
+                                    DockPanel.Dock="Right" Click="PickColor_Click" Tag="TxtWaveColor"/>
+                            <Border x:Name="SwWaveColor" Width="28" Height="24" Background="#3BD0FF"
+                                    BorderBrush="Gray" BorderThickness="1" Margin="0,0,6,0"
+                                    DockPanel.Dock="Left" MouseLeftButtonDown="Swatch_Click" Tag="TxtWaveColor"/>
+                            <TextBox x:Name="TxtWaveColor" Tag="SwWaveColor" Height="24" VerticalContentAlignment="Center"
+                                     TextChanged="ColorText_TextChanged"/>
+                        </DockPanel>
                         <TextBlock Text="背景颜色（#RRGGBB）" FontWeight="SemiBold" Margin="0,8,0,0"/>
-                        <TextBox x:Name="TxtBgColor" Height="24" Margin="0,4,0,10"/>
+                        <DockPanel Margin="0,4,0,10">
+                            <Button x:Name="BtnPickBgColor" Content="选择…" Width="64" Height="24"
+                                    DockPanel.Dock="Right" Click="PickColor_Click" Tag="TxtBgColor"/>
+                            <Border x:Name="SwBgColor" Width="28" Height="24" Background="#101018"
+                                    BorderBrush="Gray" BorderThickness="1" Margin="0,0,6,0"
+                                    DockPanel.Dock="Left" MouseLeftButtonDown="Swatch_Click" Tag="TxtBgColor"/>
+                            <TextBox x:Name="TxtBgColor" Tag="SwBgColor" Height="24" VerticalContentAlignment="Center"
+                                     TextChanged="ColorText_TextChanged"/>
+                        </DockPanel>
 
                         <TextBlock Text="歌词切换动画" FontWeight="SemiBold"/>
                         <ComboBox x:Name="CmbLyricTransition" Margin="0,4,0,10">

@@ -64,6 +64,11 @@ public class PlayerLocalApiService : IPlayerLocalApiService
                 }
                 catch { }
             }
+
+            // 所有端点均失败：重置端口并立即刷新失败时间（30s 内不再尝试），
+            // 避免 BetterNCM 未安装时每次切歌都白等 800ms 网络超时拖慢歌词显示
+            _neteasePort = 0;
+            _neteasePortCheck = DateTime.UtcNow;
         }
         catch { }
         return null;

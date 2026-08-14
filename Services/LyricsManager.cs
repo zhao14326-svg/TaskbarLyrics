@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 using TaskbarLyrics.Models;
 
 namespace TaskbarLyrics.Services;
@@ -22,18 +23,21 @@ public partial class LyricsManager : ILyricsProvider
     private readonly IPlayerLocalApiService _localApi;
     private readonly ILyricsCache _cache;
     private readonly IAudioTagLyricsReader _tagReader;
+    private readonly Microsoft.Extensions.Logging.ILogger<LyricsManager> _logger;
     private readonly List<string> _audioFiles = new();
     private readonly object _indexLock = new();
     private bool _indexReady;
 
     public LyricsManager(IOnlineLyricsService onlineLyrics, IPlayerLyricsCache playerCache,
-        IPlayerLocalApiService localApi, ILyricsCache cache, IAudioTagLyricsReader tagReader)
+        IPlayerLocalApiService localApi, ILyricsCache cache, IAudioTagLyricsReader tagReader,
+        Microsoft.Extensions.Logging.ILogger<LyricsManager>? logger = null)
     {
         _onlineService = onlineLyrics;
         PlayerCache = playerCache;
         _localApi = localApi;
         _cache = cache;
         _tagReader = tagReader;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<LyricsManager>.Instance;
     }
 
     // 并发与缓存状态
@@ -108,6 +112,7 @@ public partial class LyricsManager : ILyricsProvider
         var key = Normalize($"{track.Title}|{track.Artist}");
         if (key.Length == 0)
         {
+            _logger.LogDebug("获取歌词：曲目名为空，标记无歌词");
             Current = null;
             IsInstrumental = true;
             return null;
@@ -125,6 +130,7 @@ public partial class LyricsManager : ILyricsProvider
         // ABAB 来回切歌也无需重新解析缓存/触发在线检索，避免歌词行反复重置跳动）
         if (_recentLyrics.TryGetValue(key, out var recent))
         {
+            _logger.LogDebug("歌词命中内存缓存: {Title}|{Artist} 来源 {Source}", track.Title, track.Artist, recent.Source);
             if (key == _currentKey && Current is null)
             {
                 Current = recent;
@@ -137,7 +143,10 @@ public partial class LyricsManager : ILyricsProvider
         // 最近一次获取失败（负缓存）：跳过网络请求
         if (_negativeCache.TryGetValue(key, out var failAt) &&
             DateTime.UtcNow - failAt < NegativeCacheTtl)
+        {
+            _logger.LogDebug("歌词负缓存命中(5分钟内失败过): {Title}|{Artist}", track.Title, track.Artist);
             return Current;
+        }
 
         // 合并并发重复请求（定时器 tick 可能重叠，避免同一首歌多次联网）
         var task = _inflight.GetOrAdd(key, _ => FetchInternalAsync(track, key));
@@ -193,6 +202,7 @@ public partial class LyricsManager : ILyricsProvider
             if (cached.Lines.Count > 0)
             {
                 cached.Source = "缓存(本地)";
+                _logger.LogDebug("歌词来源=持久缓存: {Title}|{Artist} {Lines}行", track.Title, track.Artist, cached.Lines.Count);
                 Publish(key, cached);
                 return cached;
             }
@@ -202,6 +212,7 @@ public partial class LyricsManager : ILyricsProvider
         var fast = await FirstSuccessAsync(FetchFromFastSourcesAsync(track));
         if (fast is { IsEmpty: false })
         {
+            _logger.LogDebug("歌词来源=快速来源 {Source}: {Title}|{Artist} {Lines}行", fast.Source, track.Title, track.Artist, fast.Lines.Count);
             fast = await ReestimatePlainAsync(fast, track);
             _cache.Store(track.Title, track.Artist, fast.GetStoreText(), fast.Source, await ResolveDurationSecAsync(track));
             Publish(key, fast);
@@ -216,6 +227,7 @@ public partial class LyricsManager : ILyricsProvider
         var online = await FetchFromOnlineAsync(track);
         if (online is { IsEmpty: false })
         {
+            _logger.LogDebug("歌词来源=在线 {Source}: {Title}|{Artist} {Lines}行", online.Source, track.Title, track.Artist, online.Lines.Count);
             online = await ReestimatePlainAsync(online, track);
             _cache.Store(track.Title, track.Artist, online.GetStoreText(), online.Source, await ResolveDurationSecAsync(track));
             _onlineFetched[key] = DateTime.UtcNow;
@@ -224,6 +236,7 @@ public partial class LyricsManager : ILyricsProvider
         }
 
         // 全部来源失败：确认“无歌词”（IsInstrumental=true）
+        _logger.LogWarning("歌词全部来源失败: {Title}|{Artist}", track.Title, track.Artist);
         Publish(key, null);
         return null;
     }

@@ -137,6 +137,68 @@ public partial class MainWindow : Window
         TxtSpecRefresh.Text = $"刷新间隔: {(int)SldSpecRefresh.Value} ms";
     }
 
+    // ==================== 颜色选择（色盘） ====================
+
+    /// <summary>点击“选择…”按钮：打开系统色盘，选色后写回文本框并刷新预览。</summary>
+    private void PickColor_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement fe || fe.Tag is not string boxName) return;
+        var tb = FindName(boxName) as System.Windows.Controls.TextBox;
+        if (tb == null) return;
+
+        using var dlg = new System.Windows.Forms.ColorDialog();
+        if (TryParseHex(tb.Text, out var current))
+            dlg.Color = System.Drawing.Color.FromArgb(current.R, current.G, current.B);
+
+        if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+            tb.Text = $"#{dlg.Color.R:X2}{dlg.Color.G:X2}{dlg.Color.B:X2}";
+    }
+
+    /// <summary>点击颜色预览色块：等效于点击“选择…”。</summary>
+    private void Swatch_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.Tag is string boxName)
+        {
+            var btnName = "BtnPick" + boxName.Replace("Txt", "");
+            if (FindName(btnName) is System.Windows.Controls.Button btn)
+                PickColor_Click(btn, new RoutedEventArgs());
+        }
+    }
+
+    /// <summary>文本框内容变化：实时刷新色块预览（输入合法 #RRGGBB 时）。</summary>
+    private void ColorText_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        // TextBox 的 Tag 直接指向对应色块名（如 TxtColor 的 Tag="SwColor"）
+        if (sender is not FrameworkElement fe || fe.Tag is not string swatchName) return;
+        if (FindName(swatchName) is not Border swatch) return;
+        swatch.Background = TryParseHex((sender as System.Windows.Controls.TextBox)?.Text, out var c)
+            ? new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(c.R, c.G, c.B))
+            : System.Windows.Media.Brushes.Transparent;
+    }
+
+    /// <summary>解析 #RRGGBB（或 #RGB）十六进制颜色，失败返回 false。</summary>
+    private static bool TryParseHex(string? text, out System.Drawing.Color color)
+    {
+        color = System.Drawing.Color.White;
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        var hex = text.Trim().TrimStart('#');
+        if (hex.Length == 6 &&
+            int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out var rgb))
+        {
+            color = System.Drawing.Color.FromArgb((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+            return true;
+        }
+        if (hex.Length == 3 &&
+            int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out var rgb3))
+        {
+            int r = (rgb3 >> 8) & 0xF, g = (rgb3 >> 4) & 0xF, b = rgb3 & 0xF;
+            color = System.Drawing.Color.FromArgb(r | (r << 4), g | (g << 4), b | (b << 4));
+            return true;
+        }
+        return false;
+    }
+
     // ==================== 状态预览 ====================
 
     /// <summary>刷新播放状态预览（Rendering 事件节流触发；窗口隐藏时不触发，避免后台反复全进程扫描拖垮 UI 线程）。</summary>

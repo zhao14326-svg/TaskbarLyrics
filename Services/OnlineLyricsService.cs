@@ -1,6 +1,7 @@
 ﻿using System.Net.Http;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 using TaskbarLyrics.Models;
 
 namespace TaskbarLyrics.Services;
@@ -12,10 +13,12 @@ public partial class OnlineLyricsService : IOnlineLyricsService
 {
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(2) };
     private readonly INeteaseApi _netease;
+    private readonly Microsoft.Extensions.Logging.ILogger<OnlineLyricsService> _logger;
 
-    public OnlineLyricsService(INeteaseApi netease)
+    public OnlineLyricsService(INeteaseApi netease, Microsoft.Extensions.Logging.ILogger<OnlineLyricsService>? logger = null)
     {
         _netease = netease;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<OnlineLyricsService>.Instance;
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 TaskbarLyrics/2.0");
     }
 
@@ -35,8 +38,13 @@ public partial class OnlineLyricsService : IOnlineLyricsService
             var done = await Task.WhenAny(tasks);
             tasks.Remove(done);
             var result = await done;
-            if (result is { IsEmpty: false }) return result;
+            if (result is { IsEmpty: false })
+            {
+                _logger.LogDebug("在线歌词命中 {Source}: {Title}|{Artist} {Lines}行", result.Source, title, artist, result.Lines.Count);
+                return result;
+            }
         }
+        _logger.LogDebug("在线歌词全部来源无结果: {Title}|{Artist}", title, artist);
         return null;
     }
 

@@ -1,5 +1,6 @@
 ﻿using System.Text;
 using System.Diagnostics;
+using TaskbarLyrics;
 using TaskbarLyrics.Services;
 
 // 测试隔离缓存库：避免跨测试运行命中持久化 SQLite 缓存（如上一轮的“嵌套歌曲”缓存）
@@ -323,7 +324,31 @@ try
 }
 finally { try { Directory.Delete(nestDir, true); } catch { } }
 
-Console.WriteLine($"\n最终结果: {(ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8 && ok9 && ok10 && ok11 && ok12 && ok13 && ok14 && ok14b && ok15 && ok16 && ok17 && ok18 ? "全部通过 🎉" : "存在失败项")}");
+// ============ 测试19: 色盘颜色解析（#RRGGBB / #RGB） ============
+Console.WriteLine("\n=== 测试19: 色盘颜色解析 ===");
+var parseMethod = typeof(MainWindow).GetMethod("TryParseHex",
+    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+bool ok19 = false;
+if (parseMethod != null)
+{
+    var prm = new object?[] { "#66ccff", null };
+    var r1 = (bool)parseMethod.Invoke(null, prm)!;
+    var c1 = (System.Drawing.Color)prm[1]!;
+    prm = new object?[] { "#3bd", null };
+    var r2 = (bool)parseMethod.Invoke(null, prm)!;
+    var c2 = (System.Drawing.Color)prm[1]!;
+    prm = new object?[] { "不是颜色", null };
+    var r3 = (bool)parseMethod.Invoke(null, prm)!;
+    ok19 = r1 && c1.R == 0x66 && c1.G == 0xCC && c1.B == 0xFF
+        && r2 && c2.R == 0x33 && c2.G == 0xBB && c2.B == 0xDD
+        && !r3;
+    Console.WriteLine($"  #66ccff → R={c1.R:X2} G={c1.G:X2} B={c1.B:X2} ({(r1 ? "✓" : "✗")})");
+    Console.WriteLine($"  #3bd → R={c2.R:X2} G={c2.G:X2} B={c2.B:X2} ({(r2 ? "✓" : "✗")})");
+    Console.WriteLine($"  非法输入 → {(r3 ? "✗ 不应解析成功" : "✓ 正确拒绝")}");
+    Console.WriteLine(ok19 ? "✅ 色盘颜色解析通过" : "❌ 色盘颜色解析失败");
+}
+
+Console.WriteLine($"\n最终结果: {(ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8 && ok9 && ok10 && ok11 && ok12 && ok13 && ok14 && ok14b && ok15 && ok16 && ok17 && ok18 && ok19 ? "全部通过 🎉" : "存在失败项")}");
 
 // ==================== 测试文件构造 ====================
 
